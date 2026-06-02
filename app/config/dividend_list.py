@@ -1,0 +1,23 @@
+DIVIDEND_LIST = [
+
+    "AADI", "AALI", "ABMM", "ACES", "ACRO", "ADMF", "ADRO", "AKRA", "AMAG", "AMAR", 
+    "AMIN", "AMOR", "ANTM", "ARNA", "ASDM", "ASGR", "ASII", "ASSA", "AUTO", "AVIA", 
+    "AXIO", "BALI", "BAYU", "BBCA", "BBNI", "BBRI", "BBTN", "BDMN", "BFIN", "BIRD", 
+    "BISI", "BJBR", "BJTM", "BMRI", "BNGA", "BNII", "BOLT", "BPFI", "BSSR", "BTPS", 
+    "BUAH", "BUDI", "BYAN", "CEKA", "CFIN", "CINT", "CITA", "CLPI", "CMRY", "CNMA", 
+    "CTBN", "CTRA", "DAAZ", "DGWG", "DKFT", "DLTA", "DMAS", "DRMA", "DVLA", "EAST", 
+    "EKAD", "ELSA", "EMTK", "EPMT", "ERAA", "EXCL", "FWCT", "GEMA", "GEMS", "GHON", 
+    "GJTL", "GLVA", "GPRA", "GUNA", "HAIS", "HEXA", "HMSP", "ICBP", "IFII", "IKBI", 
+    "INCI", "INDF", "INTP", "IPCM", "ISAT", "ISSP", "ITMG", "JAYA", "JKON", "JPFA", 
+    "JSMR", "KBLI", "KBLM", "KDSI", "KKGI", "KLBF", "KMDS", "LPIN", "LPPF", "LSIP", 
+    "LTLS", "MAHA", "MAIN", "MARK", "MCOL", "MDKI", "MDLA", "MEDC", "MEGA", "MERK", 
+    "MINE", "MKPI", "MLBI", "MMLP", "MPMX", "MSJA", "MSTI", "MTDL", "MTEL", "MYOH", 
+    "MYOR", "NAIK", "NCKL", "NELY", "NICL", "NISP", "NRCA", "PANR", "PANS", "PBID", 
+    "PBSA", "PGAS", "PGEO", "PJAA", "PLIN", "PMUI", "PNBN", "PNGO", "POWR", "PPGL", 
+    "PRDA", "PSGO", "PTBA", "PTPS", "PWON", "RALS", "RDTX", "ROTI", "SAMF", "SBMA", 
+    "SCCO", "SCMA", "SDRA", "SGRO", "SICO", "SIDO", "SIMP", "SKLT", "SKRN", "SMCB", 
+    "SMDR", "SMSM", "SPTO", "SSMS", "STAA", "SUNI", "TAPG", "TBMS", "TEBE", "TGKA", 
+    "TIFA", "TLDN", "TLKM", "TMAS", "TOBA", "TOTL", "TOTO", "TOWR", "TPMA", "TRIS", 
+    "TRUS", "TSPC", "TUGU", "UCID", "ULTJ", "UNIC", "UNTD", "UNTR", "UNVR", "WEHA", 
+    "WIIM", "WOMF", "YUPI", "ZYRX", 
+]
