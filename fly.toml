@@ -1,5 +1,5 @@
 app = "cuanmology-kebun"
-primary_region = "sin"
+primary_region = "hkg"
 
 [build]
   dockerfile = "Dockerfile"
