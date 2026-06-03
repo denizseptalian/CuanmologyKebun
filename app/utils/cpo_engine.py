@@ -242,6 +242,115 @@ def cpo_summary(df: pd.DataFrame, price_col: str = "Close") -> dict:
 
 
 # ============================================================
+# HARGA MINYAK GORENG JAWA TIMUR — SISKAPERBAPO
+# ============================================================
+
+_SISKAPERBA_BASE = "https://siskaperbapo.jatimprov.go.id"
+
+# Commodity IDs dari SISKAPERBAPO Jawa Timur
+_MINYAK_GORENG_IDS = {
+    "Minyak Goreng Curah":             10,
+    "Minyak Goreng Kemasan Premium":   92,
+    "Minyak Goreng Kemasan Sederhana": 95,
+    "Minyak Goreng MINYAKITA":         96,
+}
+
+
+def _siskap_tooltip(commodity_id: int, date) -> float | None:
+    """
+    Ambil harga dari API SISKAPERBAPO untuk 1 komoditas 1 tanggal.
+    Return float harga atau None jika gagal.
+    """
+    try:
+        url = (f"{_SISKAPERBA_BASE}/home2/getTooltipData"
+               f"?commodity_id={commodity_id}&date={date}")
+        r = requests.get(url, headers=HEADERS, timeout=6)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        if not data.get("success"):
+            return None
+        res = data.get("result", {})
+        ha = res.get("harga_akhir")
+        return float(ha) if ha else None
+    except Exception:
+        return None
+
+
+def get_minyakgoreng_current() -> dict:
+    """
+    Ambil harga terkini semua jenis minyak goreng dari SISKAPERBAPO Jatim.
+    Return dict: {nama: {"harga": float, "satuan": str, "harga_awal": float, ...}}
+    """
+    today = datetime.now().date()
+    result = {}
+    try:
+        for nama, cid in _MINYAK_GORENG_IDS.items():
+            url = (f"{_SISKAPERBA_BASE}/home2/getTooltipData"
+                   f"?commodity_id={cid}&date={today}")
+            r = requests.get(url, headers=HEADERS, timeout=6)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("success") and data.get("result"):
+                    res = data["result"]
+                    result[nama] = {
+                        "harga":       float(res.get("harga_akhir") or 0),
+                        "harga_awal":  float(res.get("harga_awal") or 0),
+                        "satuan":      res.get("bp_satuan", ""),
+                        "tgl_awal":    res.get("tanggal_awal", ""),
+                        "tgl_akhir":   res.get("tanggal_akhir", ""),
+                        "commodity_id": cid,
+                    }
+    except Exception:
+        pass
+    return result
+
+
+def get_minyakgoreng_history(commodity_id: int = 10, days: int = 30) -> pd.DataFrame:
+    """
+    Ambil riwayat harga minyak goreng dari SISKAPERBAPO Jatim.
+    Melakukan days+1 API call (1 per hari). Default: Minyak Goreng Curah (ID=10).
+    """
+    today = datetime.now().date()
+    rows  = []
+    for d in range(days, -1, -1):
+        date = today - timedelta(days=d)
+        price = _siskap_tooltip(commodity_id, date)
+        if price and price > 0:
+            rows.append({"Date": date, "Harga": price})
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows).sort_values("Date").reset_index(drop=True)
+    n = len(df)
+    df["MA7"]  = df["Harga"].rolling(min(7, n)).mean()
+    df["MA14"] = df["Harga"].rolling(min(14, n)).mean()
+    return df
+
+
+def get_minyakgoreng_all_history(days: int = 14) -> pd.DataFrame:
+    """
+    Ambil riwayat harga semua jenis minyak goreng dari SISKAPERBAPO.
+    Return long-format DataFrame: Date, Jenis, Harga
+    """
+    today = datetime.now().date()
+    rows  = []
+    for d in range(days, -1, -1):
+        date = today - timedelta(days=d)
+        for nama, cid in _MINYAK_GORENG_IDS.items():
+            price = _siskap_tooltip(cid, date)
+            if price and price > 0:
+                rows.append({"Date": date, "Jenis": nama, "Harga": price})
+
+    if not rows:
+        return pd.DataFrame()
+    return (pd.DataFrame(rows)
+            .sort_values(["Date", "Jenis"])
+            .reset_index(drop=True))
+
+
+# ============================================================
 # BERITA & SENTIMEN CPO
 # ============================================================
 
@@ -285,6 +394,56 @@ def get_cpo_news(days: int = 14, lang: str = "id") -> pd.DataFrame:
     else:
         keywords         = ["CPO price", "crude palm oil", "palm oil futures"]
         hl, gl, ceid     = "en", "US", "US:en"
+
+    data  = []
+    end   = datetime.now()
+    start = end - timedelta(days=days)
+
+    for kw in keywords:
+        kw_enc = urllib.parse.quote(kw)
+        url    = (
+            f"https://news.google.com/rss/search"
+            f"?q={kw_enc}+after:{start.date()}+before:{end.date()}"
+            f"&hl={hl}&gl={gl}&ceid={ceid}"
+        )
+        try:
+            feed = feedparser.parse(url)
+            for e in feed.entries:
+                try:
+                    pub = pd.to_datetime(e.published).date()
+                except Exception:
+                    pub = datetime.now().date()
+                data.append({
+                    "Date":    pub,
+                    "title":   e.get("title", ""),
+                    "desc":    e.get("summary", ""),
+                    "media":   e.source.title if hasattr(e, "source") else "",
+                    "keyword": kw,
+                })
+        except Exception:
+            continue
+
+    if not data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(data).drop_duplicates(subset="title")
+    df["doc"]             = (df["title"] + " " + df["desc"]).apply(_clean)
+    df["sentiment_score"] = df["doc"].apply(_score)
+    df["sentiment_label"] = df["sentiment_score"].apply(
+        lambda s: "Positif" if s > 0 else ("Negatif" if s < 0 else "Netral")
+    )
+    return df.sort_values("Date", ascending=False).reset_index(drop=True)
+
+
+def get_minyakgoreng_news(days: int = 14) -> pd.DataFrame:
+    """
+    Ambil berita minyak goreng Indonesia dari Google News RSS.
+    """
+    if not FEEDPARSER_OK:
+        return pd.DataFrame()
+
+    keywords     = ["harga minyak goreng", "minyak goreng Indonesia", "minyak goreng naik turun"]
+    hl, gl, ceid = "id", "ID", "ID:id"
 
     data  = []
     end   = datetime.now()

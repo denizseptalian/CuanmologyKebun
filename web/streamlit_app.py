@@ -2451,7 +2451,7 @@ def render_multi_algo_screener():
                 )
 
 # ==========================================================
-# ==================== CPO MONITOR =========================
+# ==================== CPO MONITORING =========================
 # ==========================================================
 
 def render_cpo_monitor():
@@ -2459,13 +2459,18 @@ def render_cpo_monitor():
     from app.utils.cpo_engine import (
         get_cpo_global, get_cpo_indonesia, cpo_summary,
         get_cpo_news, get_cpo_wordcloud,
+        get_minyakgoreng_current, get_minyakgoreng_history, get_minyakgoreng_all_history,
+        get_minyakgoreng_news,
     )
 
-    st.title("🌿 CPO Monitor")
+    st.title("🌿 CPO dan Minyak Goreng Monitoring Kebun")
     st.caption("Pantau harga Crude Palm Oil global & lokal Indonesia beserta analisis sentimen berita.")
     st.divider()
 
-    tab_harga, tab_sentimen = st.tabs(["📈 Harga & Trend", "📰 Sentimen Berita"])
+    tab_harga, tab_minyak, tab_sentimen, tab_forecast = st.tabs([
+        "📈 Harga CPO & Trend", "🛢️ Minyak Goreng Jatim",
+        "📰 Sentimen Berita", "🔮 Analisis Forecast",
+    ])
 
     # =========================================================
     # TAB 1 — HARGA & TREND
@@ -2484,14 +2489,21 @@ def render_cpo_monitor():
 
         if load or st.session_state.get("cpo_data_loaded"):
             if load:
-                with st.spinner("Mengambil data FCPO.KL & lokal Indonesia..."):
-                    with st.spinner("Mengambil data harga CPO global & lokal..."):
-                        df_global  = get_cpo_global(period)
-                        df_indo    = get_cpo_indonesia(period)
+                with st.spinner("Mengambil data harga CPO global & lokal..."):
+                    df_global  = get_cpo_global(period)
+                    df_indo    = get_cpo_indonesia(period)
+                _HARI_ID_C  = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"]
+                _BULAN_ID_C = ["","Januari","Februari","Maret","April","Mei","Juni",
+                               "Juli","Agustus","September","Oktober","November","Desember"]
+                _now_c = datetime.now()
+                _ts_c  = (f"{_HARI_ID_C[_now_c.weekday()]}, "
+                          f"{_now_c.day} {_BULAN_ID_C[_now_c.month]} {_now_c.year}  "
+                          f"{_now_c.strftime('%H:%M')} WIB")
                 st.session_state["cpo_global"]      = df_global
                 st.session_state["cpo_indo"]        = df_indo
                 st.session_state["cpo_period_sel"]  = period
                 st.session_state["cpo_data_loaded"] = True
+                st.session_state["cpo_loaded_at"]   = _ts_c
             else:
                 df_global = st.session_state.get("cpo_global", pd.DataFrame())
                 df_indo   = st.session_state.get("cpo_indo",   pd.DataFrame())
@@ -2499,7 +2511,10 @@ def render_cpo_monitor():
             # ---- GLOBAL ----
             _src_global = df_global["Source"].iloc[-1] if not df_global.empty and "Source" in df_global.columns else ""
             _cur_global = df_global["Currency"].iloc[-1] if not df_global.empty and "Currency" in df_global.columns else "USD"
+            _cpo_loaded_at = st.session_state.get("cpo_loaded_at", "")
             st.subheader("🌍 Harga CPO Global")
+            if _cpo_loaded_at:
+                st.caption(f"🕐 Data diperbarui: **{_cpo_loaded_at}**")
             if _src_global:
                 st.caption(f"Sumber: {_src_global}")
             if df_global.empty:
@@ -2682,16 +2697,216 @@ def render_cpo_monitor():
                 )
 
     # =========================================================
-    # TAB 2 — SENTIMEN BERITA
+    # TAB 2 — MINYAK GORENG JAWA TIMUR (SISKAPERBAPO)
+    # =========================================================
+    with tab_minyak:
+        st.markdown("### 🛢️ Harga Minyak Goreng Jawa Timur")
+        st.caption("Sumber: SISKAPERBAPO — Sistem Informasi Ketersediaan dan Perkembangan Harga Bahan Pokok Jawa Timur")
+        st.divider()
+
+        col_mg1, col_mg2, _ = st.columns([1, 1, 2])
+        with col_mg1:
+            load_mg = st.button("🔄 Muat Harga Minyak Goreng", use_container_width=True, key="btn_load_mg")
+        with col_mg2:
+            mg_days = st.selectbox("Periode historis", [7, 14, 21, 30], index=1,
+                                   format_func=lambda x: f"{x} hari", key="mg_days")
+
+        if load_mg or st.session_state.get("mg_loaded"):
+            if load_mg:
+                with st.spinner("Mengambil harga minyak goreng dari SISKAPERBAPO Jatim..."):
+                    mg_current  = get_minyakgoreng_current()
+                    mg_all_hist = get_minyakgoreng_all_history(days=mg_days)
+                _HARI_ID  = ["Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"]
+                _BULAN_ID = ["","Januari","Februari","Maret","April","Mei","Juni",
+                             "Juli","Agustus","September","Oktober","November","Desember"]
+                _now = datetime.now()
+                _ts  = (f"{_HARI_ID[_now.weekday()]}, "
+                        f"{_now.day} {_BULAN_ID[_now.month]} {_now.year}  "
+                        f"{_now.strftime('%H:%M')} WIB")
+                st.session_state["mg_current"]   = mg_current
+                st.session_state["mg_all_hist"]  = mg_all_hist
+                st.session_state["mg_loaded"]    = True
+                st.session_state["mg_loaded_at"] = _ts
+            else:
+                mg_current  = st.session_state.get("mg_current", {})
+                mg_all_hist = st.session_state.get("mg_all_hist", pd.DataFrame())
+
+            # ---- HARGA TERKINI ----
+            if mg_current:
+                _loaded_at = st.session_state.get("mg_loaded_at", "")
+                st.subheader("💰 Harga Terkini (Rata-rata Jawa Timur)")
+                if _loaded_at:
+                    st.caption(f"🕐 Data diperbarui: **{_loaded_at}**")
+                cols_mg = st.columns(len(mg_current))
+                for col, (nama, info) in zip(cols_mg, mg_current.items()):
+                    harga      = info.get("harga", 0)
+                    harga_awal = info.get("harga_awal", harga)
+                    chg        = harga - harga_awal
+                    chg_pct    = (chg / harga_awal * 100) if harga_awal else 0
+                    satuan     = info.get("satuan", "")
+                    nama_short = nama.replace("Minyak Goreng ", "").replace(" / liter","").replace(" / kg","")
+                    col.metric(
+                        label=f"{nama_short}\n({satuan})",
+                        value=f"Rp {harga:,.0f}",
+                        delta=f"{chg_pct:+.2f}% vs 14 hari lalu"
+                    )
+
+                # Bar chart perbandingan harga terkini
+                st.divider()
+                st.subheader("📊 Perbandingan Harga Semua Jenis")
+                mg_bar_data = {
+                    k.replace("Minyak Goreng ", ""): v["harga"]
+                    for k, v in mg_current.items() if v.get("harga", 0) > 0
+                }
+                if mg_bar_data:
+                    fig_bar, ax_bar = plt.subplots(figsize=(10, 4))
+                    _bar_colors = ["#FF6B35", "#F7C59F", "#8BC34A", "#004E89"]
+                    bars = ax_bar.bar(
+                        list(mg_bar_data.keys()),
+                        list(mg_bar_data.values()),
+                        color=_bar_colors[:len(mg_bar_data)],
+                        edgecolor="white", linewidth=0.8
+                    )
+                    for bar, val in zip(bars, mg_bar_data.values()):
+                        ax_bar.text(bar.get_x() + bar.get_width()/2,
+                                    bar.get_height() + 100,
+                                    f"Rp {val:,.0f}", ha="center", va="bottom",
+                                    fontsize=9, fontweight="bold")
+                    ax_bar.set_title("Harga Minyak Goreng Jawa Timur (IDR / kg atau liter)")
+                    ax_bar.set_ylabel("Rp")
+                    ax_bar.yaxis.set_major_formatter(
+                        plt.FuncFormatter(lambda x, _: f"Rp {x:,.0f}")
+                    )
+                    ax_bar.grid(axis="y", alpha=0.3)
+                    plt.xticks(rotation=15, ha="right")
+                    plt.tight_layout()
+                    st.pyplot(fig_bar)
+
+            # ---- TREND HISTORIS SEMUA 4 JENIS ----
+            st.divider()
+            st.subheader(f"📈 Trend Harga Semua Jenis Minyak Goreng — {mg_days} Hari Terakhir")
+            if mg_all_hist.empty:
+                st.warning("Data historis tidak tersedia.")
+            else:
+                _mg_colors = {
+                    "Minyak Goreng Curah":             "#FF6B35",
+                    "Minyak Goreng Kemasan Premium":   "#2196F3",
+                    "Minyak Goreng Kemasan Sederhana": "#8BC34A",
+                    "Minyak Goreng MINYAKITA":         "#9C27B0",
+                }
+
+                # ── Grafik Gabungan 4 Jenis ──────────────────────
+                fig_all, ax_all = plt.subplots(figsize=(13, 6))
+                for jenis, grp in mg_all_hist.groupby("Jenis"):
+                    grp   = grp.sort_values("Date").reset_index(drop=True)
+                    color = _mg_colors.get(jenis, "#888")
+                    label = jenis.replace("Minyak Goreng ", "")
+
+                    # Garis utama + fill
+                    ax_all.plot(grp["Date"], grp["Harga"],
+                                label=label, linewidth=2.2, color=color,
+                                marker="o", markersize=3.5, zorder=3)
+                    ax_all.fill_between(grp["Date"], grp["Harga"],
+                                        alpha=0.08, color=color)
+
+                    # MA7 tiap jenis (putus-putus)
+                    ma7 = grp["Harga"].rolling(min(7, len(grp))).mean()
+                    if ma7.notna().any():
+                        ax_all.plot(grp["Date"], ma7,
+                                    linestyle="--", color=color,
+                                    linewidth=1.2, alpha=0.6, zorder=2)
+
+                    # Label harga terakhir di ujung kanan
+                    if not grp.empty:
+                        last_price = float(grp["Harga"].iloc[-1])
+                        last_date  = grp["Date"].iloc[-1]
+                        ax_all.annotate(
+                            f"Rp {last_price:,.0f}",
+                            xy=(last_date, last_price),
+                            xytext=(6, 0), textcoords="offset points",
+                            fontsize=8, color=color, fontweight="bold",
+                            va="center"
+                        )
+
+                ax_all.set_title(
+                    f"Perbandingan Trend Harga 4 Jenis Minyak Goreng Jawa Timur\n"
+                    f"(Sumber: SISKAPERBAPO — {mg_days} Hari Terakhir)",
+                    fontsize=11, pad=10
+                )
+                ax_all.set_ylabel("Rp / kg atau liter")
+                ax_all.yaxis.set_major_formatter(
+                    plt.FuncFormatter(lambda x, _: f"Rp {x:,.0f}")
+                )
+                ax_all.legend(loc="upper left", fontsize=9,
+                              framealpha=0.85, edgecolor="#ccc")
+                ax_all.grid(alpha=0.25, linestyle="--")
+                ax_all.set_xlabel("Tanggal")
+                plt.xticks(rotation=30)
+                plt.tight_layout()
+                st.pyplot(fig_all)
+                plt.close(fig_all)
+
+                # 4 grafik individual (2x2)
+                st.markdown("**📉 Grafik Individual per Jenis**")
+                jenis_list = mg_all_hist["Jenis"].unique()
+                cols_chart = st.columns(2)
+                for i, jenis in enumerate(jenis_list):
+                    grp   = mg_all_hist[mg_all_hist["Jenis"] == jenis].sort_values("Date")
+                    color = _mg_colors.get(jenis, "#888")
+                    label = jenis.replace("Minyak Goreng ", "")
+                    with cols_chart[i % 2]:
+                        fig_i, ax_i = plt.subplots(figsize=(6, 3))
+                        ax_i.plot(grp["Date"], grp["Harga"],
+                                  color=color, linewidth=2, marker="o", markersize=3)
+                        ax_i.fill_between(grp["Date"], grp["Harga"], alpha=0.15, color=color)
+                        # MA7
+                        ma7 = grp["Harga"].rolling(min(7, len(grp))).mean()
+                        if ma7.notna().any():
+                            ax_i.plot(grp["Date"], ma7,
+                                      linestyle="--", color="#FF9800", linewidth=1.2, label="MA7")
+                        ax_i.set_title(label, fontsize=10)
+                        ax_i.set_ylabel("Rp")
+                        ax_i.yaxis.set_major_formatter(
+                            plt.FuncFormatter(lambda x, _: f"Rp {x:,.0f}")
+                        )
+                        ax_i.grid(alpha=0.3)
+                        plt.xticks(rotation=30, fontsize=7)
+                        plt.tight_layout()
+                        st.pyplot(fig_i)
+                        plt.close(fig_i)
+
+                # Tabel gabungan pivot
+                st.divider()
+                st.markdown("**📋 Tabel Harga Semua Jenis (IDR)**")
+                pivot = mg_all_hist.pivot_table(
+                    index="Date", columns="Jenis", values="Harga", aggfunc="mean"
+                ).reset_index()
+                pivot["Date"] = pivot["Date"].astype(str)
+                pivot.columns.name = None
+                # Rename kolom agar lebih pendek
+                pivot = pivot.rename(columns={c: c.replace("Minyak Goreng ","") for c in pivot.columns})
+                fmt_dict = {c: "Rp {:,.0f}" for c in pivot.columns if c != "Date"}
+                st.dataframe(
+                    pivot.sort_values("Date", ascending=False).style.format(fmt_dict, na_rep="-"),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+        else:
+            st.info("Klik **Muat Harga Minyak Goreng** untuk memuat data dari SISKAPERBAPO Jawa Timur.")
+
+    # =========================================================
+    # TAB 3 — SENTIMEN BERITA
     # =========================================================
     with tab_sentimen:
         sent_days = st.slider("Rentang berita (hari ke belakang)", 7, 30, 14, key="cpo_sent_days")
 
-        col_btn1, col_btn2, _ = st.columns([1, 1, 2])
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
         with col_btn1:
-            load_id = st.button("📰 Muat Berita Indonesia", use_container_width=True)
+            load_id = st.button("📰 Berita CPO Indonesia", use_container_width=True)
         with col_btn2:
-            load_en = st.button("🌐 Muat Berita Global", use_container_width=True)
+            load_en = st.button("🌐 Berita CPO Global", use_container_width=True)
+        with col_btn3:
+            load_mg_news = st.button("🛢️ Berita Minyak Goreng", use_container_width=True)
 
         if load_id:
             with st.spinner("Mengambil berita CPO Indonesia..."):
@@ -2702,6 +2917,11 @@ def render_cpo_monitor():
             with st.spinner("Mengambil berita CPO Global (English)..."):
                 df_news_en = get_cpo_news(sent_days, lang="en")
             st.session_state["cpo_news_en"] = df_news_en
+
+        if load_mg_news:
+            with st.spinner("Mengambil berita minyak goreng Indonesia..."):
+                df_news_mg = get_minyakgoreng_news(sent_days)
+            st.session_state["mg_news"] = df_news_mg
 
         def _render_news_section(df_news, label, flag):
             if df_news is None or df_news.empty:
@@ -2762,13 +2982,405 @@ def render_cpo_monitor():
         with col_s1:
             _render_news_section(
                 st.session_state.get("cpo_news_id"),
-                "Indonesia", "🇮🇩"
+                "CPO Indonesia", "🇮🇩"
             )
         with col_s2:
             _render_news_section(
                 st.session_state.get("cpo_news_en"),
-                "Global", "🌐"
+                "CPO Global", "🌐"
             )
+
+        # ---- Sentimen Minyak Goreng ----
+        df_mg_news = st.session_state.get("mg_news")
+        if df_mg_news is not None:
+            st.divider()
+            _render_news_section(df_mg_news, "Minyak Goreng Indonesia", "🛢️")
+
+    # =========================================================
+    # TAB 4 — ANALISIS FORECAST
+    # =========================================================
+    with tab_forecast:
+        import plotly.graph_objects as go
+        from app.utils.forecast_engine import (
+            forecast_gb,
+            lag_correlation,
+            build_correlation_matrix,
+            sentiment_lead_lag,
+            build_sentiment_price_df,
+            rolling_volatility,
+        )
+
+        st.markdown("### 🔮 Analisis Forecast & Statistik CPO")
+
+        # ── PANEL KONFIGURASI ────────────────────────────────────
+        _MG_LABELS = {
+            "Minyak Goreng Curah": 10,
+            "Minyak Goreng Kemasan Premium": 92,
+            "Minyak Goreng Kemasan Sederhana": 95,
+            "Minyak Goreng MINYAKITA": 96,
+        }
+
+        with st.container(border=True):
+            st.markdown("#### ⚙️ Pengaturan Analisis")
+            cfg_c1, cfg_c2, cfg_c3 = st.columns(3)
+            with cfg_c1:
+                fc_date_from = st.date_input(
+                    "Dari Tanggal",
+                    datetime.now() - timedelta(days=365),
+                    key="fc_date_from",
+                )
+            with cfg_c2:
+                fc_date_to = st.date_input(
+                    "Sampai Tanggal",
+                    datetime.now(),
+                    key="fc_date_to",
+                )
+            with cfg_c3:
+                fc_mg_type = st.selectbox(
+                    "Jenis Minyak Goreng",
+                    list(_MG_LABELS.keys()),
+                    key="fc_mg_type",
+                )
+
+            cfg_c4, cfg_c5 = st.columns(2)
+            with cfg_c4:
+                fc_horizon = st.slider("Horizon Forecast (hari)", 7, 60, 30, key="fc_horizon")
+            with cfg_c5:
+                vol_window = st.slider("Rolling window volatilitas (hari)", 10, 60, 30, key="fc_vol_window")
+
+            run_fc = st.button(
+                "🚀 Generate Analisis",
+                type="primary",
+                use_container_width=True,
+                key="fc_run",
+            )
+
+        # ── AMBIL DATA ───────────────────────────────────────────
+        if run_fc:
+            _days_diff = max((fc_date_to - fc_date_from).days, 7)
+            _yf_period = (
+                "3mo" if _days_diff <= 90  else
+                "6mo" if _days_diff <= 180 else
+                "1y"  if _days_diff <= 365 else
+                "2y"  if _days_diff <= 730 else
+                "5y"
+            )
+            _mg_days   = _days_diff
+            _news_days = _days_diff
+
+            if _mg_days > 90:
+                st.warning(
+                    f"⏳ Rentang {_mg_days} hari untuk minyak goreng memerlukan banyak request "
+                    f"ke SISKAPERBAPO (~{_mg_days} panggilan API). Proses mungkin lambat."
+                )
+
+            _fc_from_str = fc_date_from.strftime("%d/%m/%Y")
+            _fc_to_str   = fc_date_to.strftime("%d/%m/%Y")
+            with st.spinner(
+                f"Mengambil data CPO ({_fc_from_str} – {_fc_to_str}), "
+                f"{fc_mg_type} ({_mg_days} hari), "
+                f"dan berita CPO ({_news_days} hari)..."
+            ):
+                _df_cpo_raw = get_cpo_global(_yf_period)
+                if not _df_cpo_raw.empty:
+                    _df_cpo_raw = _df_cpo_raw[
+                        pd.to_datetime(_df_cpo_raw["Date"]) >= pd.Timestamp(fc_date_from)
+                    ].reset_index(drop=True)
+                _df_mg_raw   = get_minyakgoreng_history(
+                    commodity_id=_MG_LABELS[fc_mg_type],
+                    days=_mg_days,
+                )
+                _df_news_raw = get_cpo_news(_news_days, lang="id")
+
+            st.session_state["fc_cpo_data"]  = _df_cpo_raw
+            st.session_state["fc_mg_data"]   = _df_mg_raw
+            st.session_state["fc_mg_label"]  = fc_mg_type
+            st.session_state["fc_news_data"] = _df_news_raw
+            st.session_state["fc_loaded"]    = True
+
+        df_global_fc       = st.session_state.get("fc_cpo_data")
+        df_mg_fc           = st.session_state.get("fc_mg_data")
+        fc_mg_label_loaded = st.session_state.get("fc_mg_label", fc_mg_type)
+        df_news_id_fc      = st.session_state.get("fc_news_data")
+
+        if not st.session_state.get("fc_loaded"):
+            st.info("⚙️ Atur parameter di atas lalu klik **🚀 Generate Analisis** untuk memulai.")
+        elif df_global_fc is None or df_global_fc.empty:
+            st.warning("Data CPO tidak berhasil diambil. Periksa koneksi internet.")
+        else:
+            # ── VISUALISASI 1 — PRICE FORECASTING ────────────────
+            st.divider()
+            st.markdown("#### 🔮 Visualisasi 1: Price Forecasting")
+            st.caption(
+                "Prediksi ke depan menggunakan Gradient Boosting + lag features "
+                "(tanpa data leakage, CI melebar seiring horizon)."
+            )
+
+            with st.spinner("Menghitung forecast harga CPO..."):
+                df_fc, ci_base = forecast_gb(
+                    df_global_fc["Date"], df_global_fc["Close_IDR"],
+                    horizon=fc_horizon, n_lags=14,
+                )
+
+            if df_fc.empty:
+                st.warning("Data historis terlalu pendek untuk forecast (minimal 29 baris).")
+            else:
+                fig_fc = go.Figure()
+
+                fig_fc.add_trace(go.Scatter(
+                    x=pd.to_datetime(df_global_fc["Date"]),
+                    y=df_global_fc["Close_IDR"],
+                    name="Historis CPO (IDR/ton)",
+                    line=dict(color="#1565C0", width=2),
+                ))
+                fig_fc.add_trace(go.Scatter(
+                    x=pd.concat([df_fc["Date"], df_fc["Date"][::-1]]),
+                    y=pd.concat([df_fc["Upper"], df_fc["Lower"][::-1]]),
+                    fill="toself",
+                    fillcolor="rgba(33,150,243,0.15)",
+                    line=dict(color="rgba(0,0,0,0)"),
+                    name="Confidence Interval 95%",
+                ))
+                fig_fc.add_trace(go.Scatter(
+                    x=df_fc["Date"],
+                    y=df_fc["Forecast"],
+                    name=f"Forecast {fc_horizon} hari",
+                    line=dict(color="#FF6F00", width=2, dash="dash"),
+                ))
+
+                if df_mg_fc is not None and not df_mg_fc.empty and "Harga" in df_mg_fc.columns:
+                    fig_fc.add_trace(go.Scatter(
+                        x=pd.to_datetime(df_mg_fc["Date"]),
+                        y=df_mg_fc["Harga"],
+                        name=f"{fc_mg_label_loaded} (IDR/kg)",
+                        line=dict(color="#FF6B35", width=1.5),
+                        yaxis="y2",
+                    ))
+                    fig_fc.update_layout(yaxis2=dict(
+                        title=f"{fc_mg_label_loaded} (IDR/kg)",
+                        overlaying="y", side="right", showgrid=False,
+                    ))
+
+                fig_fc.update_layout(
+                    title=f"Forecast Harga CPO IDR/ton — Horizon {fc_horizon} Hari",
+                    xaxis_title="Tanggal",
+                    yaxis_title="Harga CPO (IDR/ton)",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    height=480,
+                    hovermode="x unified",
+                    template="plotly_white",
+                )
+                st.plotly_chart(fig_fc, use_container_width=True)
+
+                c_ci1, c_ci2, c_ci3 = st.columns(3)
+                c_ci1.metric("Forecast Hari +1",             f"Rp {df_fc['Forecast'].iloc[0]:,.0f}")
+                c_ci2.metric(f"Forecast Hari +{fc_horizon}", f"Rp {df_fc['Forecast'].iloc[-1]:,.0f}")
+                c_ci3.metric("CI Base (±1σ×1.96)",           f"Rp {ci_base:,.0f}")
+
+                with st.expander("📋 Tabel Forecast Lengkap"):
+                    st.dataframe(
+                        df_fc.assign(
+                            Forecast=df_fc["Forecast"].map("Rp {:,.0f}".format),
+                            Upper=df_fc["Upper"].map("Rp {:,.0f}".format),
+                            Lower=df_fc["Lower"].map("Rp {:,.0f}".format),
+                        ),
+                        use_container_width=True, hide_index=True,
+                    )
+
+            # ── VISUALISASI 2 — CORRELATION & LAG ────────────────
+            st.divider()
+            st.markdown("#### 📊 Visualisasi 2: Correlation & Lag Analysis")
+            st.caption(
+                f"Pearson cross-lag antara CPO Global (IDR/ton) dan {fc_mg_label_loaded}. "
+                "Lag positif = minyak goreng bereaksi N hari setelah CPO bergerak."
+            )
+
+            if df_mg_fc is None or df_mg_fc.empty:
+                st.info("Data minyak goreng tidak tersedia untuk periode yang dipilih.")
+            else:
+                col_corr_a, col_corr_b = st.columns([1, 1])
+
+                with col_corr_a:
+                    st.markdown("**Pearson Correlation Matrix**")
+                    corr_mat = build_correlation_matrix(
+                        df_global_fc, df_mg_fc[["Date", "Harga"]],
+                        mg_label=f"{fc_mg_label_loaded} (IDR/kg)",
+                    )
+                    if not corr_mat.empty:
+                        fig_cm, ax_cm = plt.subplots(figsize=(4, 3))
+                        im = ax_cm.imshow(corr_mat.values, cmap="RdYlGn", vmin=-1, vmax=1)
+                        ax_cm.set_xticks(range(len(corr_mat.columns)))
+                        ax_cm.set_yticks(range(len(corr_mat.index)))
+                        ax_cm.set_xticklabels(corr_mat.columns, fontsize=7, rotation=20, ha="right")
+                        ax_cm.set_yticklabels(corr_mat.index, fontsize=7)
+                        for _i in range(len(corr_mat.index)):
+                            for _j in range(len(corr_mat.columns)):
+                                ax_cm.text(_j, _i, f"{corr_mat.values[_i,_j]:.2f}",
+                                           ha="center", va="center", fontsize=9, fontweight="bold")
+                        plt.colorbar(im, ax=ax_cm, fraction=0.046, pad=0.04)
+                        ax_cm.set_title(f"Korelasi CPO vs {fc_mg_label_loaded}", fontsize=8)
+                        plt.tight_layout()
+                        st.pyplot(fig_cm)
+                        plt.close(fig_cm)
+                    else:
+                        st.warning("Data tidak cukup untuk korelasi matrix.")
+
+                with col_corr_b:
+                    st.markdown("**Cross-Lag Correlation (lag 0–14 hari)**")
+                    s1_corr = (df_global_fc
+                               .assign(Date=pd.to_datetime(df_global_fc["Date"]))
+                               .set_index("Date")["Close_IDR"].sort_index())
+                    s2_corr = (df_mg_fc
+                               .assign(Date=pd.to_datetime(df_mg_fc["Date"]))
+                               .set_index("Date")["Harga"].sort_index())
+
+                    lag_dict = lag_correlation(s1_corr, s2_corr, max_lag=14)
+                    if lag_dict:
+                        lags   = list(lag_dict.keys())
+                        corrs  = list(lag_dict.values())
+                        colors = ["#2196F3" if c >= 0 else "#F44336" for c in corrs]
+
+                        fig_lag, ax_lag = plt.subplots(figsize=(5, 3.5))
+                        ax_lag.bar(lags, corrs, color=colors)
+                        ax_lag.axhline(0, color="black", linewidth=0.8)
+                        ax_lag.set_xlabel("Lag (hari)")
+                        ax_lag.set_ylabel("Korelasi Pearson")
+                        ax_lag.set_title(f"CPO Global → {fc_mg_label_loaded}", fontsize=9)
+                        ax_lag.set_xticks(lags)
+                        best_lag = max(lag_dict, key=lambda k: abs(lag_dict[k]))
+                        ax_lag.annotate(
+                            f"Best lag: {best_lag}d\n(r={lag_dict[best_lag]:.2f})",
+                            xy=(best_lag, lag_dict[best_lag]),
+                            xytext=(best_lag + 1, lag_dict[best_lag] + 0.05),
+                            fontsize=8, arrowprops=dict(arrowstyle="->", lw=0.8),
+                        )
+                        plt.tight_layout()
+                        st.pyplot(fig_lag)
+                        plt.close(fig_lag)
+                    else:
+                        st.warning("Data lag tidak cukup.")
+
+            # ── VISUALISASI 3 — SENTIMENT IMPACT ─────────────────
+            st.divider()
+            st.markdown("#### 📰 Visualisasi 3: Sentiment Impact Analytics")
+            st.caption(
+                "Korelasi antara sentimen berita hari ini dan perubahan harga CPO N hari ke depan. "
+                "Berita diambil otomatis sesuai rentang waktu yang dipilih saat Generate."
+            )
+
+            if df_news_id_fc is None or df_news_id_fc.empty:
+                st.info("Klik **🚀 Generate Analisis** untuk mengambil data berita sesuai rentang waktu.")
+            else:
+                col_sent_a, col_sent_b = st.columns([1.4, 1])
+
+                with col_sent_a:
+                    st.markdown("**Harga CPO vs Sentimen Harian**")
+                    df_sp = build_sentiment_price_df(df_global_fc, df_news_id_fc, price_col="Close_IDR")
+                    if not df_sp.empty:
+                        fig_sp, ax_sp1 = plt.subplots(figsize=(7, 3.5))
+                        ax_sp2 = ax_sp1.twinx()
+                        ax_sp1.plot(pd.to_datetime(df_sp["Date"]), df_sp["Close_IDR"],
+                                    color="#1565C0", linewidth=2, label="CPO IDR/ton")
+                        ax_sp1.set_ylabel("CPO (IDR/ton)", color="#1565C0", fontsize=8)
+                        ax_sp1.tick_params(axis="y", labelcolor="#1565C0")
+                        ax_sp2.bar(pd.to_datetime(df_sp["Date"]), df_sp["sentiment"],
+                                   color="#FF6F00", alpha=0.45, label="Sentimen")
+                        ax_sp2.axhline(0, color="gray", linewidth=0.5)
+                        ax_sp2.set_ylabel("Sentimen rata-rata", color="#FF6F00", fontsize=8)
+                        ax_sp2.tick_params(axis="y", labelcolor="#FF6F00")
+                        lines1, labels1 = ax_sp1.get_legend_handles_labels()
+                        lines2, labels2 = ax_sp2.get_legend_handles_labels()
+                        ax_sp1.legend(lines1 + lines2, labels1 + labels2, fontsize=7, loc="upper left")
+                        ax_sp1.set_title("Harga CPO vs Sentimen Berita", fontsize=9)
+                        plt.xticks(rotation=30, fontsize=7)
+                        plt.tight_layout()
+                        st.pyplot(fig_sp)
+                        plt.close(fig_sp)
+                    else:
+                        st.warning("Tidak ada tanggal yang beririsan antara harga dan berita.")
+
+                with col_sent_b:
+                    st.markdown("**Lead-Lag Sentimen → Harga (+N hari)**")
+                    ll_dict = sentiment_lead_lag(
+                        df_global_fc, df_news_id_fc, price_col="Close_IDR", max_lag=7
+                    )
+                    if ll_dict:
+                        ll_lags  = list(ll_dict.keys())
+                        ll_corrs = list(ll_dict.values())
+                        ll_cols  = ["#4CAF50" if c >= 0 else "#F44336" for c in ll_corrs]
+                        fig_ll, ax_ll = plt.subplots(figsize=(4.5, 3.5))
+                        ax_ll.barh(ll_lags, ll_corrs, color=ll_cols)
+                        ax_ll.axvline(0, color="black", linewidth=0.8)
+                        ax_ll.set_yticks(ll_lags)
+                        ax_ll.set_yticklabels([f"+{l} hari" for l in ll_lags], fontsize=8)
+                        ax_ll.set_xlabel("Korelasi Pearson", fontsize=8)
+                        ax_ll.set_title("Sentimen hari ini → Harga N hari depan", fontsize=9)
+                        plt.tight_layout()
+                        st.pyplot(fig_ll)
+                        plt.close(fig_ll)
+                    else:
+                        st.warning("Data tidak cukup untuk analisis lead-lag.")
+
+            # ── VISUALISASI 4 — VOLATILITY & ANOMALY ─────────────
+            st.divider()
+            st.markdown("#### 📈 Visualisasi 4: Volatility & Anomaly Detection")
+            st.caption(
+                "Rolling std sebagai ukuran volatilitas. "
+                "Titik anomali = |z-score| > 2 (harga menyimpang >2σ dari rata-rata bergerak)."
+            )
+
+            series_vol = (df_global_fc
+                          .assign(Date=pd.to_datetime(df_global_fc["Date"]))
+                          .set_index("Date")["Close_IDR"].sort_index().dropna())
+
+            if len(series_vol) < vol_window:
+                st.warning("Data historis terlalu pendek untuk rolling window yang dipilih.")
+            else:
+                vol, ma, anom = rolling_volatility(series_vol, window=vol_window)
+
+                fig_vol, (ax_v1, ax_v2) = plt.subplots(2, 1, figsize=(13, 7), sharex=True)
+
+                ax_v1.plot(series_vol.index, series_vol.values,
+                           color="#1565C0", linewidth=1.5, label="CPO IDR/ton", zorder=2)
+                ax_v1.plot(ma.index, ma.values,
+                           color="#FF6F00", linewidth=1.5, linestyle="--",
+                           label=f"MA{vol_window}", zorder=3)
+                if not anom.empty:
+                    ax_v1.scatter(anom.index, anom.values,
+                                  color="#F44336", s=50, zorder=4,
+                                  label=f"Anomali ({len(anom)} titik)")
+                ax_v1.set_ylabel("Harga CPO (IDR/ton)", fontsize=9)
+                ax_v1.set_title("Harga CPO + Moving Average + Anomali Harga", fontsize=10)
+                ax_v1.legend(fontsize=8)
+                ax_v1.grid(axis="y", alpha=0.3)
+
+                ax_v2.fill_between(vol.index, vol.values,
+                                   color="#9C27B0", alpha=0.35,
+                                   label=f"Volatilitas (rolling std {vol_window}d)")
+                ax_v2.plot(vol.index, vol.values, color="#9C27B0", linewidth=1.5)
+                ax_v2.set_ylabel("Std Deviasi (IDR/ton)", fontsize=9)
+                ax_v2.set_xlabel("Tanggal", fontsize=9)
+                ax_v2.set_title("Rolling Volatility CPO", fontsize=10)
+                ax_v2.legend(fontsize=8)
+                ax_v2.grid(axis="y", alpha=0.3)
+
+                plt.xticks(rotation=30, fontsize=7)
+                plt.tight_layout()
+                st.pyplot(fig_vol)
+                plt.close(fig_vol)
+
+                cv1, cv2, cv3, cv4 = st.columns(4)
+                cv1.metric("Volatilitas Terkini", f"Rp {vol.dropna().iloc[-1]:,.0f}")
+                cv2.metric("Volatilitas Maks",    f"Rp {vol.dropna().max():,.0f}")
+                cv3.metric("Volatilitas Min",     f"Rp {vol.dropna().min():,.0f}")
+                cv4.metric("Jumlah Anomali",      f"{len(anom)} titik")
+
+                if not anom.empty:
+                    with st.expander(f"🔴 Detail {len(anom)} Titik Anomali"):
+                        df_anom = anom.reset_index()
+                        df_anom.columns = ["Tanggal", "Harga (IDR/ton)"]
+                        df_anom["Harga (IDR/ton)"] = df_anom["Harga (IDR/ton)"].map("Rp {:,.0f}".format)
+                        st.dataframe(df_anom, use_container_width=True, hide_index=True)
 
 
 # ==========================================================
@@ -3019,11 +3631,11 @@ menu = st.sidebar.radio(
         "🔍 Screener",
         "🧠 Multi-Algo Screener",
         "📊 Stock Analysis",
-        "🌿 CPO Monitor",
         "💰 Dividend Screener",
         "📘 Strategy Guide",
         "📒 Trading Tracker - Summary",
-        "⚙️ Trading Tracker - Manage"
+        "⚙️ Trading Tracker - Manage",
+        "🌿 Harga CPO dan Minyak Goreng",
     ]
 )
 
@@ -3036,7 +3648,7 @@ elif menu == "🧠 Multi-Algo Screener":
 elif menu == "📊 Stock Analysis":
     render_stock_analysis()
 
-elif menu == "🌿 CPO Monitor":
+elif menu == "🌿 Harga CPO dan Minyak Goreng":
     render_cpo_monitor()
 
 elif menu == "💰 Dividend Screener":
