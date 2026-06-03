@@ -261,12 +261,11 @@ def cpo_summary(df: pd.DataFrame, price_col: str = "Close") -> dict:
 
 
 # ============================================================
-# HARGA MINYAK GORENG JAWA TIMUR — SISKAPERBAPO
+# HARGA MINYAK GORENG JAWA TIMUR — SISKAPERBAPO + CACHE
 # ============================================================
 
 _SISKAPERBA_BASE = "https://siskaperbapo.jatimprov.go.id"
 
-# Commodity IDs dari SISKAPERBAPO Jawa Timur
 _MINYAK_GORENG_IDS = {
     "Minyak Goreng Curah":             10,
     "Minyak Goreng Kemasan Premium":   92,
@@ -274,12 +273,47 @@ _MINYAK_GORENG_IDS = {
     "Minyak Goreng MINYAKITA":         96,
 }
 
+_MG_CACHE_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "data", "minyakgoreng_cache.parquet")
+)
+
+
+def _load_mg_cache() -> pd.DataFrame:
+    """Muat cache minyak goreng dari parquet. Return empty jika tidak ada."""
+    try:
+        if os.path.exists(_MG_CACHE_PATH):
+            df = pd.read_parquet(_MG_CACHE_PATH)
+            df["Date"] = pd.to_datetime(df["Date"]).dt.date
+            return df
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
+def _save_mg_cache(df_new: pd.DataFrame):
+    """
+    Merge data baru (kolom: Date, Jenis, Harga) ke cache dan simpan.
+    Deduplikasi berdasarkan Date+Jenis, keep last.
+    """
+    try:
+        os.makedirs(os.path.dirname(_MG_CACHE_PATH), exist_ok=True)
+        existing = _load_mg_cache()
+        df_new = df_new[["Date", "Jenis", "Harga"]].copy()
+        df_new["Date"] = pd.to_datetime(df_new["Date"])
+        if not existing.empty:
+            existing["Date"] = pd.to_datetime(existing["Date"])
+            combined = pd.concat([existing, df_new], ignore_index=True)
+            combined = combined.drop_duplicates(subset=["Date", "Jenis"], keep="last")
+        else:
+            combined = df_new
+        combined.sort_values(["Date", "Jenis"], inplace=True)
+        combined.reset_index(drop=True).to_parquet(_MG_CACHE_PATH, index=False)
+    except Exception:
+        pass
+
 
 def _siskap_tooltip(commodity_id: int, date) -> float | None:
-    """
-    Ambil harga dari API SISKAPERBAPO untuk 1 komoditas 1 tanggal.
-    Return float harga atau None jika gagal.
-    """
+    """Ambil harga dari API SISKAPERBAPO untuk 1 komoditas 1 tanggal."""
     try:
         url = (f"{_SISKAPERBA_BASE}/home2/getTooltipData"
                f"?commodity_id={commodity_id}&date={date}")
@@ -298,11 +332,14 @@ def _siskap_tooltip(commodity_id: int, date) -> float | None:
 
 def get_minyakgoreng_current() -> dict:
     """
-    Ambil harga terkini semua jenis minyak goreng dari SISKAPERBAPO Jatim.
-    Return dict: {nama: {"harga": float, "satuan": str, "harga_awal": float, ...}}
+    Ambil harga terkini semua jenis minyak goreng.
+    Coba SISKAPERBAPO → fallback ke baris terakhir di cache.
     """
     today = datetime.now().date()
     result = {}
+
+    # Coba live dari SISKAPERBAPO
+    live_ok = False
     try:
         for nama, cid in _MINYAK_GORENG_IDS.items():
             url = (f"{_SISKAPERBA_BASE}/home2/getTooltipData"
@@ -313,45 +350,89 @@ def get_minyakgoreng_current() -> dict:
                 if data.get("success") and data.get("result"):
                     res = data["result"]
                     result[nama] = {
-                        "harga":       float(res.get("harga_akhir") or 0),
-                        "harga_awal":  float(res.get("harga_awal") or 0),
-                        "satuan":      res.get("bp_satuan", ""),
-                        "tgl_awal":    res.get("tanggal_awal", ""),
-                        "tgl_akhir":   res.get("tanggal_akhir", ""),
+                        "harga":        float(res.get("harga_akhir") or 0),
+                        "harga_awal":   float(res.get("harga_awal") or 0),
+                        "satuan":       res.get("bp_satuan", ""),
+                        "tgl_awal":     res.get("tanggal_awal", ""),
+                        "tgl_akhir":    res.get("tanggal_akhir", ""),
                         "commodity_id": cid,
+                        "sumber":       "SISKAPERBAPO (live)",
                     }
+                    live_ok = True
     except Exception:
         pass
+
+    if live_ok and result:
+        return result
+
+    # Fallback: ambil harga terbaru per jenis dari cache
+    cache = _load_mg_cache()
+    if cache.empty:
+        return {}
+    for nama in _MINYAK_GORENG_IDS:
+        sub = cache[cache["Jenis"] == nama].sort_values("Date")
+        if not sub.empty:
+            last = sub.iloc[-1]
+            result[nama] = {
+                "harga":        float(last["Harga"]),
+                "harga_awal":   float(last["Harga"]),
+                "satuan":       "kg",
+                "tgl_awal":     str(last["Date"]),
+                "tgl_akhir":    str(last["Date"]),
+                "commodity_id": _MINYAK_GORENG_IDS[nama],
+                "sumber":       f"Cache ({last['Date']})",
+            }
     return result
 
 
 def get_minyakgoreng_history(commodity_id: int = 10, days: int = 30) -> pd.DataFrame:
     """
-    Ambil riwayat harga minyak goreng dari SISKAPERBAPO Jatim.
-    Melakukan days+1 API call (1 per hari). Default: Minyak Goreng Curah (ID=10).
+    Riwayat harga minyak goreng (single jenis).
+    Coba SISKAPERBAPO dulu → jika berhasil simpan ke cache → jika gagal baca cache.
     """
     today = datetime.now().date()
-    rows  = []
+    jenis = next((k for k, v in _MINYAK_GORENG_IDS.items() if v == commodity_id), str(commodity_id))
+
+    # Coba SISKAPERBAPO
+    rows = []
     for d in range(days, -1, -1):
-        date = today - timedelta(days=d)
+        date  = today - timedelta(days=d)
         price = _siskap_tooltip(commodity_id, date)
         if price and price > 0:
             rows.append({"Date": date, "Harga": price})
 
-    if not rows:
-        return pd.DataFrame()
+    if rows:
+        df = pd.DataFrame(rows).sort_values("Date").reset_index(drop=True)
+        # Simpan ke cache
+        df_long = df[["Date", "Harga"]].copy()
+        df_long["Jenis"] = jenis
+        _save_mg_cache(df_long)
+        n = len(df)
+        df["MA7"]  = df["Harga"].rolling(min(7, n)).mean()
+        df["MA14"] = df["Harga"].rolling(min(14, n)).mean()
+        return df
 
-    df = pd.DataFrame(rows).sort_values("Date").reset_index(drop=True)
-    n = len(df)
-    df["MA7"]  = df["Harga"].rolling(min(7, n)).mean()
-    df["MA14"] = df["Harga"].rolling(min(14, n)).mean()
-    return df
+    # Fallback: baca dari cache
+    cache = _load_mg_cache()
+    if cache.empty:
+        return pd.DataFrame()
+    cutoff = today - timedelta(days=days)
+    sub = cache[
+        (cache["Jenis"] == jenis) &
+        (pd.to_datetime(cache["Date"]).dt.date >= cutoff)
+    ][["Date", "Harga"]].sort_values("Date").reset_index(drop=True)
+    if sub.empty:
+        return pd.DataFrame()
+    n = len(sub)
+    sub["MA7"]  = sub["Harga"].rolling(min(7, n)).mean()
+    sub["MA14"] = sub["Harga"].rolling(min(14, n)).mean()
+    return sub
 
 
 def get_minyakgoreng_all_history(days: int = 14) -> pd.DataFrame:
     """
-    Ambil riwayat harga semua jenis minyak goreng dari SISKAPERBAPO.
-    Return long-format DataFrame: Date, Jenis, Harga
+    Riwayat harga semua jenis minyak goreng (long format: Date, Jenis, Harga).
+    Coba SISKAPERBAPO dulu → jika berhasil simpan ke cache → jika gagal baca cache.
     """
     today = datetime.now().date()
     rows  = []
@@ -362,11 +443,20 @@ def get_minyakgoreng_all_history(days: int = 14) -> pd.DataFrame:
             if price and price > 0:
                 rows.append({"Date": date, "Jenis": nama, "Harga": price})
 
-    if not rows:
+    if rows:
+        df = (pd.DataFrame(rows)
+              .sort_values(["Date", "Jenis"])
+              .reset_index(drop=True))
+        _save_mg_cache(df)
+        return df
+
+    # Fallback: baca dari cache
+    cache = _load_mg_cache()
+    if cache.empty:
         return pd.DataFrame()
-    return (pd.DataFrame(rows)
-            .sort_values(["Date", "Jenis"])
-            .reset_index(drop=True))
+    cutoff = today - timedelta(days=days)
+    sub = cache[pd.to_datetime(cache["Date"]).dt.date >= cutoff].copy()
+    return sub.sort_values(["Date", "Jenis"]).reset_index(drop=True)
 
 
 # ============================================================
