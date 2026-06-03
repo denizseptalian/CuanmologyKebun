@@ -23,7 +23,7 @@ jobs:
         run: pip install requests curl_cffi pandas pyarrow
 
       - name: Update minyak goreng cache
-        run: python update_mg_cache.py --days 14
+        run: python update_mg_cache.py --days 180
 
       - name: Commit & push jika ada data baru
         run: |
