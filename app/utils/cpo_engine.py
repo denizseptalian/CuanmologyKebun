@@ -18,6 +18,12 @@ import pandas as pd
 import requests
 
 try:
+    from curl_cffi import requests as curl_requests
+    CURL_CFFI_OK = True
+except ImportError:
+    CURL_CFFI_OK = False
+
+try:
     import feedparser
     FEEDPARSER_OK = True
 except ImportError:
@@ -44,6 +50,19 @@ except ImportError:
     _sw = None
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+
+def _http_get(url: str, timeout: int = 8):
+    """
+    HTTP GET dengan fallback: curl_cffi (impersonate Chrome) → requests biasa.
+    curl_cffi bisa bypass Cloudflare / geo-block yang memblokir requests standar.
+    """
+    if CURL_CFFI_OK:
+        try:
+            return curl_requests.get(url, impersonate="chrome110", timeout=timeout)
+        except Exception:
+            pass
+    return requests.get(url, headers=HEADERS, timeout=timeout)
 
 # ============================================================
 # KURS IDR — open.er-api.com (gratis, tanpa API key)
@@ -264,7 +283,7 @@ def _siskap_tooltip(commodity_id: int, date) -> float | None:
     try:
         url = (f"{_SISKAPERBA_BASE}/home2/getTooltipData"
                f"?commodity_id={commodity_id}&date={date}")
-        r = requests.get(url, headers=HEADERS, timeout=6)
+        r = _http_get(url, timeout=6)
         if r.status_code != 200:
             return None
         data = r.json()
@@ -288,7 +307,7 @@ def get_minyakgoreng_current() -> dict:
         for nama, cid in _MINYAK_GORENG_IDS.items():
             url = (f"{_SISKAPERBA_BASE}/home2/getTooltipData"
                    f"?commodity_id={cid}&date={today}")
-            r = requests.get(url, headers=HEADERS, timeout=6)
+            r = _http_get(url, timeout=6)
             if r.status_code == 200:
                 data = r.json()
                 if data.get("success") and data.get("result"):
