@@ -2625,59 +2625,105 @@ def render_cpo_monitor():
             if not df_global.empty:
                 st.divider()
                 st.subheader("🫙 Harga CPO Per Liter (Rupiah)")
-                st.caption("Estimasi berdasarkan densitas CPO ≈ 0.891 kg/liter (1 MT ≈ 1.122 liter)")
+                st.caption("Konversi: densitas CPO ≈ 0.891 kg/liter → 1 MT ≈ 1.122 liter")
 
                 _LITER_PER_TON = 1000.0 / 0.891   # ≈ 1122 liter/MT
 
+                # --- Global CPO per liter ---
                 df_liter = df_global[["Date", "Close_IDR", "Pct_Change"]].copy()
-                df_liter["IDR_per_liter"]   = df_liter["Close_IDR"] / _LITER_PER_TON
+                df_liter["Date"]          = pd.to_datetime(df_liter["Date"])
+                df_liter["IDR_per_liter"] = df_liter["Close_IDR"] / _LITER_PER_TON
                 n_l = len(df_liter)
-                df_liter["MA20_liter"]      = df_liter["IDR_per_liter"].rolling(min(20, n_l)).mean()
-                df_liter["MA50_liter"]      = df_liter["IDR_per_liter"].rolling(min(50, n_l)).mean()
+                df_liter["MA20_liter"] = df_liter["IDR_per_liter"].rolling(min(20, n_l)).mean()
+                df_liter["MA50_liter"] = df_liter["IDR_per_liter"].rolling(min(50, n_l)).mean()
 
-                # Metrik ringkasan
+                # --- Indonesia lokal CPO per liter ---
+                _src_indo  = ""
+                df_liter_id = pd.DataFrame()
+                if not df_indo.empty and "Close_IDR" in df_indo.columns:
+                    df_liter_id = df_indo[["Date", "Close_IDR"]].copy()
+                    df_liter_id["Date"]             = pd.to_datetime(df_liter_id["Date"])
+                    df_liter_id["IDR_per_liter_id"] = df_liter_id["Close_IDR"] / _LITER_PER_TON
+                    _src_indo = df_indo["Source"].iloc[-1] if "Source" in df_indo.columns else "Lokal ID"
+
+                # ── Metrik baris 1: CPO Global ──
                 last_liter    = float(df_liter["IDR_per_liter"].iloc[-1])
                 prev_liter    = float(df_liter["IDR_per_liter"].iloc[-2]) if n_l > 1 else last_liter
-                chg_liter     = last_liter - prev_liter
-                chg_liter_pct = (chg_liter / prev_liter * 100) if prev_liter else 0
+                chg_liter_pct = ((last_liter - prev_liter) / prev_liter * 100) if prev_liter else 0
                 high_liter    = float(df_liter["IDR_per_liter"].tail(252).max())
                 low_liter     = float(df_liter["IDR_per_liter"].tail(252).min())
 
+                st.markdown("**🌍 CPO Global (Futures)**")
                 cl1, cl2, cl3, cl4 = st.columns(4)
-                cl1.metric("Harga / Liter Terkini",
-                            f"Rp {last_liter:,.0f}",
-                            f"{chg_liter_pct:+.2f}%")
-                cl2.metric("Perubahan", f"Rp {chg_liter:+,.0f}")
-                cl3.metric("52W High / Liter", f"Rp {high_liter:,.0f}")
-                cl4.metric("52W Low / Liter",  f"Rp {low_liter:,.0f}")
+                cl1.metric("Harga/Liter Terkini", f"Rp {last_liter:,.0f}", f"{chg_liter_pct:+.2f}%")
+                cl2.metric("Sumber", df_global["Source"].iloc[-1] if "Source" in df_global.columns else "-")
+                cl3.metric("52W High/Liter",      f"Rp {high_liter:,.0f}")
+                cl4.metric("52W Low/Liter",        f"Rp {low_liter:,.0f}")
 
-                # Grafik tren harga per liter
+                # ── Metrik baris 2: CPO Indonesia ──
+                if not df_liter_id.empty:
+                    last_id    = float(df_liter_id["IDR_per_liter_id"].iloc[-1])
+                    prev_id    = float(df_liter_id["IDR_per_liter_id"].iloc[-2]) if len(df_liter_id) > 1 else last_id
+                    chg_id_pct = ((last_id - prev_id) / prev_id * 100) if prev_id else 0
+                    high_id    = float(df_liter_id["IDR_per_liter_id"].max())
+                    low_id     = float(df_liter_id["IDR_per_liter_id"].min())
+                    selisih    = last_id - last_liter
+
+                    st.markdown("**🇮🇩 CPO Indonesia Lokal**")
+                    ci1, ci2, ci3, ci4 = st.columns(4)
+                    ci1.metric("Harga/Liter Terkini", f"Rp {last_id:,.0f}", f"{chg_id_pct:+.2f}%")
+                    ci2.metric("Selisih vs Global",    f"Rp {selisih:+,.0f}",
+                               help="Positif = harga lokal lebih mahal dari global")
+                    ci3.metric("Tertinggi/Liter",      f"Rp {high_id:,.0f}")
+                    ci4.metric("Terendah/Liter",        f"Rp {low_id:,.0f}")
+                    if _src_indo:
+                        st.caption(f"Sumber: {_src_indo}")
+
+                # ── Grafik perbandingan ──
                 fig_l, ax_l = plt.subplots(figsize=(12, 4))
+
                 ax_l.plot(df_liter["Date"], df_liter["IDR_per_liter"],
-                          label="Harga CPO/Liter (IDR)", linewidth=2, color="#9C27B0")
+                          label="CPO Global (IDR/liter)", linewidth=2, color="#9C27B0")
                 ax_l.fill_between(df_liter["Date"], df_liter["IDR_per_liter"],
-                                  alpha=0.15, color="#9C27B0")
+                                  alpha=0.12, color="#9C27B0")
+
+                if not df_liter_id.empty:
+                    ax_l.plot(df_liter_id["Date"], df_liter_id["IDR_per_liter_id"],
+                              label="CPO Indonesia Lokal (IDR/liter)",
+                              linewidth=2, color="#4CAF50", linestyle="-")
+                    ax_l.fill_between(df_liter_id["Date"], df_liter_id["IDR_per_liter_id"],
+                                      alpha=0.08, color="#4CAF50")
+
                 if df_liter["MA20_liter"].notna().any():
                     ax_l.plot(df_liter["Date"], df_liter["MA20_liter"],
-                              label="MA20", linestyle="--", color="#FF9800", linewidth=1.5)
+                              label="MA20 (Global)", linestyle="--", color="#FF9800", linewidth=1.2)
                 if df_liter["MA50_liter"].notna().any():
                     ax_l.plot(df_liter["Date"], df_liter["MA50_liter"],
-                              label="MA50", linestyle="--", color="#F44336", linewidth=1.5)
-                ax_l.set_title("Trend Harga CPO per Liter (IDR)")
+                              label="MA50 (Global)", linestyle="--", color="#F44336", linewidth=1.2)
+
+                ax_l.set_title("Perbandingan Harga CPO Global vs Indonesia per Liter (IDR)")
                 ax_l.set_ylabel("Rp / liter")
-                ax_l.yaxis.set_major_formatter(
-                    plt.FuncFormatter(lambda x, _: f"Rp {x:,.0f}")
-                )
-                ax_l.legend()
+                ax_l.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"Rp {x:,.0f}"))
+                ax_l.legend(fontsize=8)
                 ax_l.grid(alpha=0.3)
                 plt.xticks(rotation=30)
                 plt.tight_layout()
                 st.pyplot(fig_l)
+                plt.close(fig_l)
 
-                # Tabel harga per liter
+                # ── Tabel perbandingan ──
                 st.markdown("**📋 Tabel Harga CPO / Liter (IDR) — 30 Hari Terakhir**")
-                tbl_liter = df_liter.tail(30)[["Date", "IDR_per_liter", "MA20_liter", "MA50_liter", "Pct_Change"]].copy()
-                tbl_liter.columns = ["Tanggal", "Harga/Liter (IDR)", "MA20/Liter", "MA50/Liter", "Perubahan (%)"]
+                tbl_g = df_liter.tail(30)[["Date", "IDR_per_liter", "Pct_Change"]].copy()
+                tbl_g.columns = ["Tanggal", "Global (IDR/liter)", "Perubahan Global (%)"]
+                tbl_g["Tanggal"] = tbl_g["Tanggal"].astype(str)
+
+                if not df_liter_id.empty:
+                    tbl_id = df_liter_id.tail(30)[["Date", "IDR_per_liter_id"]].copy()
+                    tbl_id.columns = ["Tanggal", "Indonesia Lokal (IDR/liter)"]
+                    tbl_id["Tanggal"] = tbl_id["Tanggal"].astype(str)
+                    tbl_liter = tbl_g.merge(tbl_id, on="Tanggal", how="left")
+                else:
+                    tbl_liter = tbl_g
 
                 def _color_liter(v):
                     try:
@@ -2685,13 +2731,12 @@ def render_cpo_monitor():
                     except Exception:
                         return ""
 
+                fmt_tbl = {"Global (IDR/liter)": "Rp {:,.1f}", "Perubahan Global (%)": "{:.2f}%"}
+                if "Indonesia Lokal (IDR/liter)" in tbl_liter.columns:
+                    fmt_tbl["Indonesia Lokal (IDR/liter)"] = "Rp {:,.1f}"
+
                 st.dataframe(
-                    tbl_liter.style.map(_color_liter, subset=["Perubahan (%)"]).format({
-                        "Harga/Liter (IDR)": "Rp {:,.1f}",
-                        "MA20/Liter":        "Rp {:,.1f}",
-                        "MA50/Liter":        "Rp {:,.1f}",
-                        "Perubahan (%)":     "{:.2f}%",
-                    }, na_rep="-"),
+                    tbl_liter.style.map(_color_liter, subset=["Perubahan Global (%)"]).format(fmt_tbl, na_rep="-"),
                     use_container_width=True,
                     hide_index=True,
                 )
