@@ -41,6 +41,7 @@ def calc_per_broker_from_price(df_price, days: int = 60, stock_code: str = ""):
     Metodologi:
     - Total flow institusi/retail dihitung via VSA dari OHLCV
     - Dibagikan ke kode broker IDX nyata sesuai bobot market-share historis
+    - avg_buy / avg_sell dihitung dari VWAP sesi Tier A (institusi) vs Tier C (retail)
     - Seed dari kode saham → hasil konsisten per saham, berbeda antar saham
 
     CATATAN: Ini adalah estimasi pola, bukan data transaksi broker sesungguhnya.
@@ -49,41 +50,65 @@ def calc_per_broker_from_price(df_price, days: int = 60, stock_code: str = ""):
     if df_tiers is None:
         return None
 
+    # ── VWAP per tier (harga rata-rata tertimbang volume per kelompok sesi) ──
+    def _vwap(mask):
+        sub = df_tiers[mask]
+        if sub.empty or sub["volume"].sum() == 0:
+            return df_tiers["close"].mean()
+        return (sub["close"] * sub["volume"]).sum() / sub["volume"].sum()
+
+    vwap_a   = _vwap(df_tiers["tier"] == "A")   # sesi institusi/asing
+    vwap_b   = _vwap(df_tiers["tier"] == "B")   # sesi mid/fund
+    vwap_c   = _vwap(df_tiers["tier"] == "C")   # sesi retail
+    vwap_all = _vwap(pd.Series([True] * len(df_tiers), index=df_tiers.index))
+
     inst_flow   = df_tiers["tier_a_value"].sum() + df_tiers["tier_b_value"].sum() * 0.40
     retail_flow = abs(df_tiers["tier_c_value"].sum()) + df_tiers["tier_b_value"].sum() * 0.60
 
     seed = abs(hash(stock_code.upper())) % (2 ** 31) if stock_code else 42
     rng  = np.random.default_rng(seed)
 
-    # Normalkan bobot per grup
     asing_codes = {k: v for k, v in IDX_BROKERS.items() if v[1] == "Asing"}
     lokal_codes = {k: v for k, v in IDX_BROKERS.items() if v[1] == "Lokal"}
-
     asing_total_w = sum(v[2] for v in asing_codes.values())
     lokal_total_w = sum(v[2] for v in lokal_codes.values())
 
     rows = []
     for code, (name, broker_type, base_w) in IDX_BROKERS.items():
-        noise     = rng.uniform(0.55, 1.45)
-        adj_w     = base_w * noise
+        noise = rng.uniform(0.55, 1.45)
+        adj_w = base_w * noise
 
         if broker_type == "Asing":
             norm_w = adj_w / asing_total_w
             buy    = inst_flow   * norm_w * 0.70
             sell   = retail_flow * norm_w * 0.22
+            # Asing beli di sesi institusi (Tier A) → avg beli ≈ VWAP_A
+            # Asing jual di sesi retail (Tier C)   → avg jual ≈ VWAP_C
+            avg_buy  = vwap_a * rng.uniform(0.975, 1.025)
+            avg_sell = vwap_c * rng.uniform(0.975, 1.025)
         else:
             norm_w = adj_w / lokal_total_w
             buy    = inst_flow   * norm_w * 0.42
             sell   = retail_flow * norm_w * 0.52
+            # Lokal lebih banyak di sesi B/C
+            avg_buy  = vwap_b * rng.uniform(0.975, 1.025)
+            avg_sell = vwap_c * rng.uniform(0.975, 1.025)
 
         net = buy - sell
+        # Harga rata-rata keseluruhan (weighted avg buy+sell volume)
+        total_val = buy + sell
+        avg_price = (avg_buy * buy + avg_sell * sell) / total_val if total_val > 0 else vwap_all
+
         rows.append({
-            "code":  code,
-            "name":  name,
-            "type":  broker_type,
-            "buy":   round(buy),
-            "sell":  round(sell),
-            "net":   round(net),
+            "code":      code,
+            "name":      name,
+            "type":      broker_type,
+            "buy":       round(buy),
+            "sell":      round(sell),
+            "net":       round(net),
+            "avg_buy":   round(avg_buy),
+            "avg_sell":  round(avg_sell),
+            "avg_price": round(avg_price),
         })
 
     df_br = pd.DataFrame(rows)

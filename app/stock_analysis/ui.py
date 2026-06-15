@@ -706,6 +706,9 @@ def render_stock_analysis():
                 margin=dict(l=10, r=10, t=40, b=10),
             )
 
+            # Harga penutupan terakhir untuk referensi garis
+            _last_close = int(df_tiers["close"].iloc[-1]) if df_tiers is not None and not df_tiers.empty else 0
+
             def _broker_bar(df_sub, title, n=20):
                 df_sub = df_sub.sort_values("net").tail(n).copy()
                 colors = ["#22c55e" if v >= 0 else "#ef4444" for v in df_sub["net"]]
@@ -715,29 +718,88 @@ def render_stock_analysis():
                     y=label,
                     orientation="h",
                     marker_color=colors,
-                    customdata=df_sub[["buy", "sell", "type"]].values,
+                    customdata=df_sub[["buy", "sell", "avg_buy", "avg_sell", "avg_price", "type"]].values,
                     hovertemplate=(
                         "<b>%{y}</b><br>"
                         "Net: Rp %{x:.1f} B<br>"
-                        "Beli: Rp %{customdata[0]:.2e}<br>"
-                        "Jual: Rp %{customdata[1]:.2e}<br>"
-                        "Tipe: %{customdata[2]}"
+                        "Est. Beli: Rp %{customdata[0]:,.0f}<br>"
+                        "Est. Jual: Rp %{customdata[1]:,.0f}<br>"
+                        "Avg Beli: Rp %{customdata[2]:,}<br>"
+                        "Avg Jual: Rp %{customdata[3]:,}<br>"
+                        "Avg Harga: Rp %{customdata[4]:,}<br>"
+                        "Tipe: %{customdata[5]}"
                         "<extra></extra>"
                     ),
                 ))
                 fig.update_layout(
                     title=dict(text=title, font=dict(size=13)),
                     xaxis_title="Net Flow Estimasi (Miliar Rp)",
-                    height=max(360, n * 28),
+                    height=max(360, n * 30),
                     **_DARK,
                 )
                 fig.add_vline(x=0, line_dash="dash", line_color="#6b7280", line_width=1)
                 return fig
 
+            def _avg_price_chart(df_sub, title):
+                """Scatter chart harga rata-rata beli vs jual per broker."""
+                df_sub = df_sub.sort_values("avg_price").copy()
+                label  = df_sub["code"] + " — " + df_sub["name"]
+                colors_dot = ["#22c55e" if v >= 0 else "#ef4444" for v in df_sub["net"]]
+
+                fig = go.Figure()
+
+                # Garis avg_buy (diamond)
+                fig.add_trace(go.Scatter(
+                    x=df_sub["avg_buy"],
+                    y=label,
+                    mode="markers",
+                    name="Avg Beli",
+                    marker=dict(symbol="diamond", size=10, color="#22c55e"),
+                    hovertemplate="<b>%{y}</b><br>Avg Beli: Rp %{x:,}<extra></extra>",
+                ))
+                # Garis avg_sell (circle)
+                fig.add_trace(go.Scatter(
+                    x=df_sub["avg_sell"],
+                    y=label,
+                    mode="markers",
+                    name="Avg Jual",
+                    marker=dict(symbol="circle", size=10, color="#ef4444"),
+                    hovertemplate="<b>%{y}</b><br>Avg Jual: Rp %{x:,}<extra></extra>",
+                ))
+                # Garis avg_price keseluruhan (square)
+                fig.add_trace(go.Scatter(
+                    x=df_sub["avg_price"],
+                    y=label,
+                    mode="markers",
+                    name="Avg Keseluruhan",
+                    marker=dict(symbol="square", size=8, color="#f59e0b"),
+                    hovertemplate="<b>%{y}</b><br>Avg Harga: Rp %{x:,}<extra></extra>",
+                ))
+                # Garis harga sekarang
+                if _last_close > 0:
+                    fig.add_vline(
+                        x=_last_close,
+                        line_dash="dash", line_color="#60a5fa", line_width=1.5,
+                        annotation_text=f"  Harga Kini: {_last_close:,}",
+                        annotation_font_color="#60a5fa",
+                    )
+                fig.update_layout(
+                    title=dict(text=title, font=dict(size=13)),
+                    xaxis_title="Estimasi Harga Rata-rata (Rp)",
+                    height=max(360, len(df_sub) * 30),
+                    legend=dict(orientation="h", y=1.05),
+                    **_DARK,
+                )
+                return fig
+
             with tab_all:
                 top_n = min(24, len(df_brokers))
                 st.plotly_chart(
-                    _broker_bar(df_brokers, f"Net Flow Estimasi — Top {top_n} Broker", n=top_n),
+                    _broker_bar(df_brokers, f"Net Flow Estimasi — {top_n} Broker", n=top_n),
+                    use_container_width=True,
+                )
+                st.plotly_chart(
+                    _avg_price_chart(df_brokers, "Harga Rata-rata Per Broker (◆ Beli | ● Jual | ■ Rata-rata | ─ Harga Kini)"),
                     use_container_width=True,
                 )
 
@@ -747,6 +809,10 @@ def render_stock_analysis():
                     _broker_bar(df_a, "Net Flow Estimasi — Broker Asing", n=len(df_a)),
                     use_container_width=True,
                 )
+                st.plotly_chart(
+                    _avg_price_chart(df_a, "Harga Rata-rata — Broker Asing"),
+                    use_container_width=True,
+                )
 
             with tab_lokal:
                 df_l = df_brokers[df_brokers["type"] == "Lokal"].copy()
@@ -754,26 +820,34 @@ def render_stock_analysis():
                     _broker_bar(df_l, "Net Flow Estimasi — Broker Lokal", n=len(df_l)),
                     use_container_width=True,
                 )
+                st.plotly_chart(
+                    _avg_price_chart(df_l, "Harga Rata-rata — Broker Lokal"),
+                    use_container_width=True,
+                )
 
             # ── Tabel lengkap broker ──────────────────────────────────
             with st.expander("📋 Tabel Lengkap Aktivitas Per Broker", expanded=False):
                 df_tbl_br = df_brokers.copy()
-                df_tbl_br["Kode"]         = df_tbl_br["code"]
-                df_tbl_br["Nama Broker"]  = df_tbl_br["name"]
-                df_tbl_br["Tipe"]         = df_tbl_br["type"]
-                df_tbl_br["Est. Beli (B)"]= (df_tbl_br["buy"] / 1e9).round(2)
-                df_tbl_br["Est. Jual (B)"]= (df_tbl_br["sell"] / 1e9).round(2)
-                df_tbl_br["Net (B)"]      = (df_tbl_br["net"] / 1e9).round(2)
-                df_tbl_br["Aksi"]         = df_tbl_br["net"].apply(
+                df_tbl_br["Kode"]           = df_tbl_br["code"]
+                df_tbl_br["Nama Broker"]    = df_tbl_br["name"]
+                df_tbl_br["Tipe"]           = df_tbl_br["type"]
+                df_tbl_br["Est. Beli (B)"]  = (df_tbl_br["buy"] / 1e9).round(2)
+                df_tbl_br["Est. Jual (B)"]  = (df_tbl_br["sell"] / 1e9).round(2)
+                df_tbl_br["Net (B)"]        = (df_tbl_br["net"] / 1e9).round(2)
+                df_tbl_br["Avg Beli (Rp)"]  = df_tbl_br["avg_buy"].apply(lambda x: f"{int(x):,}".replace(",", "."))
+                df_tbl_br["Avg Jual (Rp)"]  = df_tbl_br["avg_sell"].apply(lambda x: f"{int(x):,}".replace(",", "."))
+                df_tbl_br["Avg Harga (Rp)"] = df_tbl_br["avg_price"].apply(lambda x: f"{int(x):,}".replace(",", "."))
+                df_tbl_br["Aksi"]           = df_tbl_br["net"].apply(
                     lambda x: "🟢 Net Beli" if x > 0 else "🔴 Net Jual"
                 )
                 st.dataframe(
                     df_tbl_br[["Kode", "Nama Broker", "Tipe",
-                                "Est. Beli (B)", "Est. Jual (B)", "Net (B)", "Aksi"]]
+                                "Est. Beli (B)", "Est. Jual (B)", "Net (B)",
+                                "Avg Beli (Rp)", "Avg Jual (Rp)", "Avg Harga (Rp)", "Aksi"]]
                     .sort_values("Net (B)", ascending=False)
                     .reset_index(drop=True),
                     use_container_width=True,
-                    height=380,
+                    height=400,
                 )
 
             # ── Tier summary (ringkas di bawah) ──────────────────────
