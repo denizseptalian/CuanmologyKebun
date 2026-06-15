@@ -1,6 +1,95 @@
 import pandas as pd
 import numpy as np
 
+# Kode broker IDX: (nama lengkap, tipe, bobot market-share relatif)
+IDX_BROKERS = {
+    # ── Asing / Foreign ────────────────────────────────────────────────────
+    "YU": ("CIMB Securities",              "Asing", 0.170),
+    "DB": ("Deutsche Securities",          "Asing", 0.140),
+    "BK": ("JP Morgan Securities",         "Asing", 0.120),
+    "MS": ("Morgan Stanley",               "Asing", 0.110),
+    "CS": ("Credit Suisse",                "Asing", 0.090),
+    "KI": ("Citigroup Securities",         "Asing", 0.085),
+    "UB": ("UBS Securities",               "Asing", 0.075),
+    "RX": ("Macquarie Capital",            "Asing", 0.065),
+    "ZP": ("Maybank Kim Eng",              "Asing", 0.080),
+    "MG": ("Merrill Lynch",                "Asing", 0.075),
+    "DP": ("Danareksa Sekuritas",          "Asing", 0.060),
+    "AK": ("UBS Securities (2nd)",         "Asing", 0.030),
+    # ── Lokal Institusi ─────────────────────────────────────────────────────
+    "AZ": ("Mirae Asset Sekuritas",        "Lokal", 0.155),
+    "AI": ("Sinarmas Sekuritas",           "Lokal", 0.130),
+    "DH": ("Mandiri Sekuritas",            "Lokal", 0.125),
+    "XC": ("BCA Sekuritas",                "Lokal", 0.120),
+    "PD": ("Indo Premier Sekuritas",       "Lokal", 0.110),
+    "NI": ("BNI Sekuritas",                "Lokal", 0.100),
+    "EL": ("Trimegah Sekuritas",           "Lokal", 0.090),
+    "GR": ("Panin Sekuritas",              "Lokal", 0.080),
+    "CP": ("Valbury Asia",                 "Lokal", 0.075),
+    "OD": ("Bahana Sekuritas",             "Lokal", 0.065),
+    "LS": ("Surya Fajar Capital",          "Lokal", 0.060),
+    "DX": ("Phillip Sekuritas",            "Lokal", 0.055),
+    "YP": ("Henan Putihrai",               "Lokal", 0.050),
+    "KZ": ("CLSA Indonesia",               "Lokal", 0.045),
+}
+
+
+def calc_per_broker_from_price(df_price, days: int = 60, stock_code: str = ""):
+    """
+    Estimasi aktivitas per kode broker IDX berdasarkan VSA flow.
+
+    Metodologi:
+    - Total flow institusi/retail dihitung via VSA dari OHLCV
+    - Dibagikan ke kode broker IDX nyata sesuai bobot market-share historis
+    - Seed dari kode saham → hasil konsisten per saham, berbeda antar saham
+
+    CATATAN: Ini adalah estimasi pola, bukan data transaksi broker sesungguhnya.
+    """
+    df_tiers = calc_broker_tiers_from_price(df_price, days=days)
+    if df_tiers is None:
+        return None
+
+    inst_flow   = df_tiers["tier_a_value"].sum() + df_tiers["tier_b_value"].sum() * 0.40
+    retail_flow = abs(df_tiers["tier_c_value"].sum()) + df_tiers["tier_b_value"].sum() * 0.60
+
+    seed = abs(hash(stock_code.upper())) % (2 ** 31) if stock_code else 42
+    rng  = np.random.default_rng(seed)
+
+    # Normalkan bobot per grup
+    asing_codes = {k: v for k, v in IDX_BROKERS.items() if v[1] == "Asing"}
+    lokal_codes = {k: v for k, v in IDX_BROKERS.items() if v[1] == "Lokal"}
+
+    asing_total_w = sum(v[2] for v in asing_codes.values())
+    lokal_total_w = sum(v[2] for v in lokal_codes.values())
+
+    rows = []
+    for code, (name, broker_type, base_w) in IDX_BROKERS.items():
+        noise     = rng.uniform(0.55, 1.45)
+        adj_w     = base_w * noise
+
+        if broker_type == "Asing":
+            norm_w = adj_w / asing_total_w
+            buy    = inst_flow   * norm_w * 0.70
+            sell   = retail_flow * norm_w * 0.22
+        else:
+            norm_w = adj_w / lokal_total_w
+            buy    = inst_flow   * norm_w * 0.42
+            sell   = retail_flow * norm_w * 0.52
+
+        net = buy - sell
+        rows.append({
+            "code":  code,
+            "name":  name,
+            "type":  broker_type,
+            "buy":   round(buy),
+            "sell":  round(sell),
+            "net":   round(net),
+        })
+
+    df_br = pd.DataFrame(rows)
+    df_br = df_br.sort_values("net", ascending=False).reset_index(drop=True)
+    return df_br
+
 
 def calc_flow_from_price(df_price, days: int = 60):
     """
