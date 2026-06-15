@@ -677,6 +677,151 @@ def render_stock_analysis():
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
+        # ─── AKTIVITAS SETIAP BROKER TIER ─────────────────────────────
+        st.divider()
+        st.markdown("#### 🏢 Aktivitas Setiap Kelompok Broker")
+        st.caption(
+            "Klasifikasi sesi trading ke 3 tier broker berdasarkan pola volume dan posisi harga tutup (VSA). "
+            "Data estimasi — bukan data transaksi broker IDX secara langsung."
+        )
+
+        from app.utils.broker_flow import (
+            calc_broker_tiers_from_price,
+            summarize_broker_tiers,
+        )
+
+        df_tiers = calc_broker_tiers_from_price(df_daily_raw, days=60)
+
+        if df_tiers is None or df_tiers.empty:
+            st.warning("Data tier broker tidak tersedia.")
+        else:
+            tier_stats = summarize_broker_tiers(df_tiers)
+
+            # ── Metric 3 tier ────────────────────────────────────────
+            tc1, tc2, tc3 = st.columns(3)
+            tc1.metric(
+                "🔴 Tier A — Institusi/Asing",
+                f"{tier_stats['tier_a_days']} sesi ({tier_stats['tier_a_pct']}%)",
+                help="Volume besar + harga tutup di atas 60% range → dominasi big player",
+            )
+            tc2.metric(
+                "🟡 Tier B — Reksa Dana/Mid",
+                f"{tier_stats['tier_b_days']} sesi ({tier_stats['tier_b_pct']}%)",
+                help="Volume rata-rata, close di range tengah → aktivitas fund manager",
+            )
+            tc3.metric(
+                "🔵 Tier C — Retail/Domestik",
+                f"{tier_stats['tier_c_days']} sesi ({tier_stats['tier_c_pct']}%)",
+                help="Volume rendah atau close di bawah 40% range → tekanan jual retail",
+            )
+
+            col_chart, col_pie = st.columns([2, 1])
+
+            with col_chart:
+                # ── Stacked area chart per tier ───────────────────────
+                df_t = df_tiers.copy()
+
+                fig_tier = go.Figure()
+                fig_tier.add_trace(go.Scatter(
+                    x=df_t["date"],
+                    y=(df_t["tier_a_value"] / 1e9),
+                    name="Tier A — Institusi/Asing",
+                    stackgroup="one",
+                    line=dict(color="#ef4444", width=1.5),
+                    fillcolor="rgba(239,68,68,0.35)",
+                    hovertemplate="%{x|%d %b}<br>Tier A: Rp %{y:.1f} B<extra></extra>",
+                ))
+                fig_tier.add_trace(go.Scatter(
+                    x=df_t["date"],
+                    y=(df_t["tier_b_value"] / 1e9),
+                    name="Tier B — Reksa Dana",
+                    stackgroup="one",
+                    line=dict(color="#eab308", width=1.5),
+                    fillcolor="rgba(234,179,8,0.3)",
+                    hovertemplate="%{x|%d %b}<br>Tier B: Rp %{y:.1f} B<extra></extra>",
+                ))
+                fig_tier.add_trace(go.Scatter(
+                    x=df_t["date"],
+                    y=(df_t["tier_c_value"].abs() / 1e9),
+                    name="Tier C — Retail/Domestik",
+                    stackgroup="one",
+                    line=dict(color="#60a5fa", width=1.5),
+                    fillcolor="rgba(96,165,250,0.25)",
+                    hovertemplate="%{x|%d %b}<br>Tier C: Rp %{y:.1f} B<extra></extra>",
+                ))
+                fig_tier.update_layout(
+                    title=dict(text="Aktivitas Broker per Sesi Trading", font=dict(size=13)),
+                    xaxis_title="Tanggal",
+                    yaxis_title="Estimasi Nilai Transaksi (Miliar Rp)",
+                    height=340,
+                    margin=dict(l=10, r=10, t=40, b=40),
+                    plot_bgcolor="#0e1117",
+                    paper_bgcolor="#0e1117",
+                    font=dict(color="#f1f5f9"),
+                    legend=dict(orientation="h", y=1.12),
+                    hovermode="x unified",
+                )
+                st.plotly_chart(fig_tier, use_container_width=True)
+
+            with col_pie:
+                # ── Pie chart komposisi hari ───────────────────────────
+                fig_pie = go.Figure(data=[go.Pie(
+                    labels=["Tier A\nInstitusi/Asing", "Tier B\nReksa Dana", "Tier C\nRetail"],
+                    values=[
+                        tier_stats["tier_a_days"],
+                        tier_stats["tier_b_days"],
+                        tier_stats["tier_c_days"],
+                    ],
+                    hole=0.45,
+                    marker=dict(colors=["#ef4444", "#eab308", "#60a5fa"]),
+                    textinfo="percent",
+                    hovertemplate="%{label}<br>%{value} sesi (%{percent})<extra></extra>",
+                )])
+                fig_pie.update_layout(
+                    title=dict(text="Komposisi Sesi (60 Hari)", font=dict(size=12)),
+                    height=340,
+                    margin=dict(l=10, r=10, t=50, b=10),
+                    plot_bgcolor="#0e1117",
+                    paper_bgcolor="#0e1117",
+                    font=dict(color="#f1f5f9"),
+                    legend=dict(orientation="v", x=0, y=0.5),
+                    showlegend=True,
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            # ── Tabel sesi per tier ───────────────────────────────────
+            with st.expander("📋 Detail Aktivitas per Sesi (60 Hari)", expanded=False):
+                df_detail = df_tiers.copy()
+                df_detail["Tanggal"]    = df_detail["date"].dt.strftime("%d %b %Y")
+                df_detail["Harga"]      = df_detail["close"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
+                df_detail["Volume"]     = df_detail["volume"].apply(lambda x: f"{int(x):,}".replace(",", "."))
+                df_detail["Tier"]       = df_detail["tier"].map({
+                    "A": "🔴 Tier A — Institusi",
+                    "B": "🟡 Tier B — Mid/Fund",
+                    "C": "🔵 Tier C — Retail",
+                })
+                df_detail["Nilai A (B)"] = (df_detail["tier_a_value"] / 1e9).round(2)
+                df_detail["Nilai B (B)"] = (df_detail["tier_b_value"] / 1e9).round(2)
+                df_detail["Nilai C (B)"] = (df_detail["tier_c_value"].abs() / 1e9).round(2)
+
+                st.dataframe(
+                    df_detail[["Tanggal", "Harga", "Volume", "Tier",
+                                "Nilai A (B)", "Nilai B (B)", "Nilai C (B)"]]
+                    .sort_values("Tanggal", ascending=False)
+                    .reset_index(drop=True),
+                    use_container_width=True,
+                    height=320,
+                )
+
+            st.markdown(
+                "<small style='color:#6b7280'>💡 Keterangan: "
+                "<b style='color:#ef4444'>Tier A</b> — Broker institusi/asing besar (volume ≥140% rata-rata + close atas 60% range) | "
+                "<b style='color:#eab308'>Tier B</b> — Reksa dana & mid-tier (volume rata-rata, close tengah) | "
+                "<b style='color:#60a5fa'>Tier C</b> — Broker retail/domestik (volume rendah atau close bawah 40% range)"
+                "</small>",
+                unsafe_allow_html=True,
+            )
+
         # # ===================== CYCLE PROJECTION (SMART + ADAPTIVE) =====================
         # st.subheader("📅 Cycle Projection")
 

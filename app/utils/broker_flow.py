@@ -79,6 +79,94 @@ def calc_flow_from_price(df_price, days: int = 60):
     return result
 
 
+def calc_broker_tiers_from_price(df_price, days: int = 60):
+    """
+    Klasifikasi sesi trading ke dalam 3 tier broker berdasarkan VSA:
+      - Tier A (Institusi/Asing): volume tinggi + close tutup di atas 60% range
+      - Tier B (Dana Reksa/Mid): volume sedang + close di tengah range
+      - Tier C (Retail/Domestik): volume rendah atau close di bawah 40% range
+
+    Tidak menggunakan data broker IDX — semua dihitung dari OHLCV.
+    """
+    if df_price is None or df_price.empty:
+        return None
+
+    df = df_price.copy()
+
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [c[0] for c in df.columns]
+    df.columns = [str(c).upper().strip() for c in df.columns]
+
+    needed = {"OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"}
+    if not needed.issubset(df.columns):
+        return None
+
+    for col in needed:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=list(needed)).tail(days).copy()
+    if len(df) < 5:
+        return None
+
+    spread = (df["HIGH"] - df["LOW"]).replace(0, np.nan)
+    close_pos = ((df["CLOSE"] - df["LOW"]) / spread).clip(0.0, 1.0).fillna(0.5)
+    value = df["CLOSE"] * df["VOLUME"]
+
+    vol_mean = df["VOLUME"].mean()
+    vol_high = vol_mean * 1.4
+    vol_low  = vol_mean * 0.65
+
+    # Tier A — institusi/asing: volume besar + close dekat top bar
+    tier_a_mask = (df["VOLUME"] >= vol_high) & (close_pos >= 0.60)
+    # Tier C — retail: volume kecil ATAU close di bawah 40%
+    tier_c_mask = (df["VOLUME"] <= vol_low) | (close_pos < 0.40)
+    # Tier B — sisanya
+    tier_b_mask = ~tier_a_mask & ~tier_c_mask
+
+    df["tier_a_value"] = np.where(tier_a_mask, value * close_pos, 0.0)
+    df["tier_b_value"] = np.where(tier_b_mask, value * 0.5, 0.0)
+    df["tier_c_value"] = np.where(tier_c_mask, -(value * (1.0 - close_pos)), 0.0)
+    df["tier"]         = np.where(tier_a_mask, "A",
+                         np.where(tier_b_mask, "B", "C"))
+
+    df["date"] = (
+        pd.to_datetime(df.index)
+        if not isinstance(df.index, pd.DatetimeIndex)
+        else df.index
+    )
+    df["date"] = df["date"].dt.tz_localize(None)
+
+    result = df[["date", "CLOSE", "VOLUME",
+                 "tier", "tier_a_value", "tier_b_value", "tier_c_value"]].copy()
+    result = result.rename(columns={"CLOSE": "close", "VOLUME": "volume"})
+    result = result.reset_index(drop=True)
+    return result
+
+
+def summarize_broker_tiers(df_tiers):
+    """Ringkasan statistik tier broker."""
+    if df_tiers is None or df_tiers.empty:
+        return {}
+
+    total_days = len(df_tiers)
+    a_days = int((df_tiers["tier"] == "A").sum())
+    b_days = int((df_tiers["tier"] == "B").sum())
+    c_days = int((df_tiers["tier"] == "C").sum())
+
+    return {
+        "total_days": total_days,
+        "tier_a_days": a_days,
+        "tier_b_days": b_days,
+        "tier_c_days": c_days,
+        "tier_a_total": df_tiers["tier_a_value"].sum(),
+        "tier_b_total": df_tiers["tier_b_value"].sum(),
+        "tier_c_total": df_tiers["tier_c_value"].sum(),
+        "tier_a_pct": round(a_days / total_days * 100, 1),
+        "tier_b_pct": round(b_days / total_days * 100, 1),
+        "tier_c_pct": round(c_days / total_days * 100, 1),
+    }
+
+
 def summarize_flow_from_price(df_flow):
     """
     Hitung ringkasan statistik dari df_flow hasil calc_flow_from_price().
