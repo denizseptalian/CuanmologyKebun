@@ -511,6 +511,172 @@ def render_stock_analysis():
             f"{'⬆️' if summary['trend_up'] else '⬇️'}"
         )
 
+    # ===================== ALIRAN DANA ASING & RETAIL =====================
+    st.subheader("🌏 Aliran Dana Asing vs Retail")
+
+    import plotly.graph_objects as go
+    from app.utils.broker_flow import (
+        calc_flow_from_price,
+        summarize_flow_from_price,
+    )
+
+    # Ambil data harga harian (lebih panjang untuk trend)
+    from app.core.data_loader import load_daily_data
+    df_daily_raw = load_daily_data(kode, period="3mo")
+    if df_daily_raw is None or df_daily_raw.empty:
+        df_daily_raw = df_price.copy()
+
+    df_flow = calc_flow_from_price(df_daily_raw, days=60)
+
+    if df_flow is None or df_flow.empty:
+        st.warning("Data aliran tidak tersedia untuk saham ini.")
+    else:
+        flow = summarize_flow_from_price(df_flow)
+
+        # ─── METRICS ───────────────────────────────────────────────────
+        st.markdown("#### 📊 Rata-rata Aliran Asing & Retail")
+        st.caption(
+            "Estimasi berbasis analisis Smart Volume Flow (VSA) — "
+            "pola volume institusi vs retail dari data harga harian."
+        )
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric(
+            "Total Aliran Asing/Institusi",
+            f"Rp {flow['total_asing']/1e12:.2f} T",
+            delta="Dominan Beli" if flow["asing_trend_up"] else "Tren Menurun",
+            delta_color="normal" if flow["asing_trend_up"] else "inverse",
+        )
+        c2.metric(
+            "Rata-rata Harian (Asing)",
+            f"Rp {flow['avg_asing']/1e9:.1f} B",
+        )
+        c3.metric(
+            "Total Aliran Retail",
+            f"Rp {abs(flow['total_retail'])/1e12:.2f} T",
+            delta="Tekanan Jual" if flow["total_retail"] < 0 else "Akumulasi",
+            delta_color="inverse" if flow["total_retail"] < 0 else "normal",
+        )
+        c4.metric(
+            "Hari Dominasi Asing",
+            f"{flow['asing_dominant_days']} / {flow['days']} hari",
+        )
+
+        st.divider()
+
+        # ─── TABEL HARIAN (setiap hari breakdown asing vs retail) ─────
+        st.markdown("#### 🗓️ Aliran Harian: Asing vs Retail per Sesi")
+
+        df_tbl = df_flow.copy()
+        df_tbl["Tanggal"]        = df_tbl["date"].dt.strftime("%d %b %Y")
+        df_tbl["Harga Tutup"]    = df_tbl["close"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
+        df_tbl["Aliran Asing"]   = (df_tbl["asing_flow"] / 1e9).round(2).apply(lambda x: f"{x:.2f} B")
+        df_tbl["Aliran Retail"]  = (df_tbl["retail_flow"] / 1e9).round(2).apply(lambda x: f"{x:.2f} B")
+        df_tbl["Signal"]         = df_tbl["asing_flow"].apply(
+            lambda x: "🟢 Asing Masuk" if x > df_flow["asing_flow"].mean() * 1.2
+            else ("🔴 Asing Keluar" if x < df_flow["asing_flow"].mean() * 0.8 else "⚪ Normal")
+        )
+
+        st.dataframe(
+            df_tbl[["Tanggal", "Harga Tutup", "Aliran Asing", "Aliran Retail", "Signal"]]
+            .sort_values("Tanggal", ascending=False)
+            .reset_index(drop=True),
+            use_container_width=True,
+            height=300,
+        )
+
+        st.divider()
+
+        # ─── GRAFIK TREN KUMULATIF ASING vs RETAIL ────────────────────
+        st.markdown("#### 📉 Grafik Penurunan / Tren Asing vs Retail")
+
+        df_plot = df_flow.copy()
+        df_plot["asing_kum"]  = df_plot["asing_flow"].cumsum()
+        df_plot["retail_kum"] = df_plot["retail_flow"].cumsum()
+
+        fig_trend = go.Figure()
+
+        fig_trend.add_trace(go.Scatter(
+            x=df_plot["date"],
+            y=df_plot["asing_kum"] / 1e9,
+            mode="lines",
+            name="Asing/Institusi (Kumulatif)",
+            line=dict(color="#ef4444", width=2.5),
+            fill="tozeroy",
+            fillcolor="rgba(239,68,68,0.12)",
+            hovertemplate="%{x|%d %b %Y}<br>Asing: Rp %{y:.1f} B<extra></extra>",
+        ))
+
+        fig_trend.add_trace(go.Scatter(
+            x=df_plot["date"],
+            y=df_plot["retail_kum"] / 1e9,
+            mode="lines",
+            name="Retail/Lokal (Kumulatif)",
+            line=dict(color="#60a5fa", width=2.5),
+            fill="tozeroy",
+            fillcolor="rgba(96,165,250,0.12)",
+            hovertemplate="%{x|%d %b %Y}<br>Retail: Rp %{y:.1f} B<extra></extra>",
+        ))
+
+        fig_trend.add_hline(
+            y=0,
+            line_dash="dash",
+            line_color="#6b7280",
+            line_width=1,
+        )
+
+        fig_trend.update_layout(
+            xaxis_title="Tanggal",
+            yaxis_title="Net Flow Kumulatif (Miliar Rp)",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            height=380,
+            margin=dict(l=10, r=10, t=30, b=40),
+            plot_bgcolor="#0e1117",
+            paper_bgcolor="#0e1117",
+            font=dict(color="#f1f5f9"),
+            hovermode="x unified",
+        )
+        st.plotly_chart(fig_trend, use_container_width=True)
+
+        # ─── BAR HARIAN ASING vs RETAIL ───────────────────────────────
+        st.markdown("**Aliran Harian Asing vs Retail (Net)**")
+
+        fig_bar = go.Figure()
+        fig_bar.add_trace(go.Bar(
+            x=df_plot["date"],
+            y=df_plot["asing_flow"] / 1e9,
+            name="Asing",
+            marker_color=[
+                "#22c55e" if v >= 0 else "#ef4444"
+                for v in df_plot["asing_flow"]
+            ],
+            hovertemplate="%{x|%d %b}<br>Asing: Rp %{y:.1f} B<extra></extra>",
+        ))
+        fig_bar.add_trace(go.Bar(
+            x=df_plot["date"],
+            y=df_plot["retail_flow"] / 1e9,
+            name="Retail",
+            marker_color=[
+                "#60a5fa" if v >= 0 else "#fb923c"
+                for v in df_plot["retail_flow"]
+            ],
+            hovertemplate="%{x|%d %b}<br>Retail: Rp %{y:.1f} B<extra></extra>",
+        ))
+        fig_bar.update_layout(
+            barmode="group",
+            xaxis_title="Tanggal",
+            yaxis_title="Net Flow (Miliar Rp)",
+            height=300,
+            margin=dict(l=10, r=10, t=10, b=40),
+            plot_bgcolor="#0e1117",
+            paper_bgcolor="#0e1117",
+            font=dict(color="#f1f5f9"),
+            legend=dict(orientation="h", y=1.05),
+            hovermode="x unified",
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+
         # # ===================== CYCLE PROJECTION (SMART + ADAPTIVE) =====================
         # st.subheader("📅 Cycle Projection")
 

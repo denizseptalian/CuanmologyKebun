@@ -3668,6 +3668,688 @@ def render_sentiment_analysis():
 
 
 # ==========================================================
+# =================== KALKULATOR SAHAM =====================
+# ==========================================================
+
+def render_kalkulator_saham():
+
+    st.header("🧮 Kalkulator Saham")
+    st.caption("Alat bantu hitung untuk keputusan investasi yang lebih akurat.")
+
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📋 Average Saham",
+        "📄 Rights Issue",
+        "📉 Recovery",
+        "💸 Dividen",
+        "💼 Alokasi Dana",
+    ])
+
+    # ──────────────────────────────────────────────────────────
+    # TAB 1 — KALKULATOR AVERAGE SAHAM
+    # ──────────────────────────────────────────────────────────
+    with tab1:
+
+        col_input, col_result = st.columns([1, 1], gap="large")
+
+        # ── KOLOM KIRI: INPUT ─────────────────────────────────
+        with col_input:
+            st.markdown(
+                """
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+                  <span style="font-size:28px;">📋</span>
+                  <div>
+                    <div style="font-size:18px;font-weight:700;">Kalkulator Average Saham</div>
+                    <div style="font-size:12px;color:#9ca3af;">
+                      Hitung harga rata-rata baru setelah membeli saham tambahan secara akurat.
+                    </div>
+                  </div>
+                </div>
+                <hr style="margin:10px 0 16px 0;">
+                """,
+                unsafe_allow_html=True,
+            )
+
+            # POSISI SAAT INI
+            st.markdown(
+                "<p style='font-size:11px;font-weight:700;color:#6b7280;"
+                "letter-spacing:1px;margin-bottom:6px;'>POSISI SAAT INI</p>",
+                unsafe_allow_html=True,
+            )
+
+            ca1, ca2 = st.columns(2)
+            with ca1:
+                st.caption("LOT DIMILIKI")
+                avg_lot_awal = st.number_input(
+                    "lot_dimiliki", min_value=0, value=0, step=1,
+                    key="avg_lot_awal", label_visibility="collapsed",
+                    placeholder="Contoh: 10",
+                )
+            with ca2:
+                st.caption("HARGA RATA-RATA (AVG)")
+                avg_harga_awal = st.number_input(
+                    "harga_avg", min_value=0, value=0, step=1,
+                    key="avg_harga_awal", label_visibility="collapsed",
+                    placeholder="Contoh: 5500",
+                )
+
+            total_posisi_auto = avg_lot_awal * 100 * avg_harga_awal
+
+            ca3, ca4 = st.columns(2)
+            with ca3:
+                st.caption("TOTAL POSISI (AUTO)")
+                st.markdown(
+                    f"<div style='border:1px solid #374151;border-radius:8px;"
+                    f"padding:8px 12px;font-size:14px;color:#d1fae5;min-height:40px;'>"
+                    f"{'Rp ' + f'{int(total_posisi_auto):,}'.replace(',','.') if total_posisi_auto else '—'}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+
+            # RENCANA PEMBELIAN
+            st.markdown(
+                "<p style='font-size:11px;font-weight:700;color:#6b7280;"
+                "letter-spacing:1px;margin-bottom:6px;'>RENCANA PEMBELIAN</p>",
+                unsafe_allow_html=True,
+            )
+
+            cb1, cb2 = st.columns(2)
+            with cb1:
+                st.caption("LOT AKAN DIBELI")
+                avg_lot_baru = st.number_input(
+                    "lot_baru", min_value=0, value=0, step=1,
+                    key="avg_lot_baru", label_visibility="collapsed",
+                    placeholder="Contoh: 5",
+                )
+            with cb2:
+                st.caption("HARGA BELI")
+                avg_harga_baru = st.number_input(
+                    "harga_baru", min_value=0, value=0, step=1,
+                    key="avg_harga_baru", label_visibility="collapsed",
+                    placeholder="Contoh: 5000",
+                )
+
+            total_beli_auto = avg_lot_baru * 100 * avg_harga_baru
+
+            cb3, cb4 = st.columns(2)
+            with cb3:
+                st.caption("TOTAL BELI (AUTO)")
+                st.markdown(
+                    f"<div style='border:1px solid #374151;border-radius:8px;"
+                    f"padding:8px 12px;font-size:14px;color:#d1fae5;min-height:40px;'>"
+                    f"{'Rp ' + f'{int(total_beli_auto):,}'.replace(',','.') if total_beli_auto else '—'}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
+
+            # TOMBOL
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if st.button("↺ Reset", key="avg_reset", use_container_width=True):
+                    for k in ["avg_lot_awal", "avg_harga_awal", "avg_lot_baru", "avg_harga_baru"]:
+                        st.session_state[k] = 0
+                    st.rerun()
+            with btn_col2:
+                # Bagikan: tampilkan summary di clipboard-style
+                if st.button("⟵ Bagikan", key="avg_share", use_container_width=True, type="primary"):
+                    st.session_state["avg_share_show"] = True
+
+        # ── KOLOM KANAN: HASIL ────────────────────────────────
+        with col_result:
+
+            # Hitung
+            modal_awal  = avg_lot_awal  * 100 * avg_harga_awal
+            modal_baru  = avg_lot_baru  * 100 * avg_harga_baru
+            total_lot   = avg_lot_awal  + avg_lot_baru
+            total_saham = total_lot     * 100
+            total_modal = modal_awal    + modal_baru
+            harga_avg_baru = (total_modal / total_saham) if total_saham > 0 else 0
+
+            pct_change = (
+                (harga_avg_baru - avg_harga_awal) / avg_harga_awal * 100
+                if avg_harga_awal > 0 else 0
+            )
+
+            st.markdown(
+                """
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+                  <span style="font-size:20px;">📊</span>
+                  <span style="font-size:15px;font-weight:700;letter-spacing:1px;">
+                    HASIL KALKULASI
+                  </span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            def _result_card(label, value, highlight=False):
+                bg    = "#1a3a2a" if highlight else "#1f2937"
+                border = "#22c55e" if highlight else "#374151"
+                vcolor = "#4ade80" if highlight else "#f1f5f9"
+                lcolor = "#86efac" if highlight else "#9ca3af"
+                fsize  = "22px"   if highlight else "18px"
+                st.markdown(
+                    f"""
+                    <div style="background:{bg};border:1px solid {border};
+                                border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+                      <div style="font-size:10px;font-weight:700;color:{lcolor};
+                                  letter-spacing:1px;margin-bottom:6px;">{label}</div>
+                      <div style="font-size:{fsize};font-weight:700;color:{vcolor};">{value}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            _result_card(
+                "TOTAL ASET BARU",
+                f"Rp {int(total_modal):,}".replace(",", ".") if total_modal else "—",
+            )
+            _result_card(
+                "TOTAL LOT DIMILIKI",
+                f"{total_lot} lot" if total_lot else "—",
+            )
+            _result_card(
+                "HARGA RATA-RATA BARU",
+                f"Rp {int(harga_avg_baru):,}".replace(",", ".") if harga_avg_baru else "—",
+                highlight=True,
+            )
+
+            if harga_avg_baru and avg_harga_awal:
+                if pct_change < 0:
+                    st.success(f"✅ Average turun {abs(pct_change):.2f}% dari harga awal")
+                elif pct_change > 0:
+                    st.warning(f"⚠️ Average naik {pct_change:.2f}% dari harga awal")
+                else:
+                    st.info("➡️ Average tidak berubah")
+
+            st.markdown(
+                "<p style='font-size:11px;color:#6b7280;margin-top:8px;'>"
+                "*Simulasi tidak termasuk biaya broker.</p>",
+                unsafe_allow_html=True,
+            )
+
+        # BAGIKAN
+        if st.session_state.get("avg_share_show") and harga_avg_baru:
+            share_text = (
+                f"📋 Average Saham\n"
+                f"Lot Lama: {avg_lot_awal} lot @ Rp {avg_harga_awal:,}\n"
+                f"Lot Baru: {avg_lot_baru} lot @ Rp {avg_harga_baru:,}\n"
+                f"→ Harga Rata-rata Baru: Rp {int(harga_avg_baru):,}\n"
+                f"→ Total Lot: {total_lot} lot\n"
+                f"→ Total Modal: Rp {int(total_modal):,}"
+            ).replace(",", ".")
+            st.code(share_text, language=None)
+            st.session_state["avg_share_show"] = False
+
+    # ──────────────────────────────────────────────────────────
+    # TAB 2 — KALKULATOR RIGHTS ISSUE
+    # ──────────────────────────────────────────────────────────
+    with tab2:
+        st.subheader("📄 Kalkulator Rights Issue")
+        st.caption(
+            "Hitung HMETD, harga teoritis, dan potensi profit setelah menebus rights issue."
+        )
+        st.markdown("---")
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            ri_saham_dimiliki  = st.number_input("Saham yang dimiliki (lembar)", min_value=100, value=10000, step=100, key="ri_saham")
+            ri_rasio_old       = st.number_input("Rasio lama (A saham lama)", min_value=1, value=5, key="ri_rasio_old",
+                                                  help="Contoh: rasio 5:3 → A=5")
+            ri_rasio_new       = st.number_input("Rasio baru (B saham baru)", min_value=1, value=3, key="ri_rasio_new",
+                                                  help="Contoh: rasio 5:3 → B=3")
+            ri_harga_pasar     = st.number_input("Harga pasar saat ini (Rp)", min_value=1, value=500, step=1, key="ri_harga_pasar")
+
+        with c2:
+            ri_harga_pelaksanaan = st.number_input("Harga pelaksanaan / exercise price (Rp)", min_value=1, value=300, step=1, key="ri_ex")
+            ri_nilai_hmetd       = st.number_input("Nilai HMETD per rights (Rp, 0=hitung otomatis)", min_value=0, value=0, step=1, key="ri_hmetd_val")
+
+        if st.button("Hitung Rights Issue", key="btn_ri", use_container_width=True, type="primary"):
+            hmetd_diterima = int(ri_saham_dimiliki / ri_rasio_old * ri_rasio_new)
+
+            # Harga teoritis ex-rights (TERP)
+            total_saham_setelah = ri_saham_dimiliki + hmetd_diterima
+            total_nilai_setelah = (ri_saham_dimiliki * ri_harga_pasar) + (hmetd_diterima * ri_harga_pelaksanaan)
+            harga_teoritis = total_nilai_setelah / total_saham_setelah
+
+            # Nilai HMETD
+            if ri_nilai_hmetd > 0:
+                nilai_hmetd_per_rights = ri_nilai_hmetd
+            else:
+                nilai_hmetd_per_rights = max(0, harga_teoritis - ri_harga_pelaksanaan)
+
+            total_nilai_hmetd = hmetd_diterima * nilai_hmetd_per_rights
+
+            # P&L jika ditebus
+            biaya_tebus = hmetd_diterima * ri_harga_pelaksanaan
+            nilai_saham_baru = hmetd_diterima * harga_teoritis
+            profit_tebus = nilai_saham_baru - biaya_tebus
+
+            st.markdown("---")
+            st.markdown("#### Hasil")
+
+            c1r, c2r, c3r = st.columns(3)
+            c1r.metric("HMETD Diterima", f"{hmetd_diterima:,} rights".replace(",", "."))
+            c2r.metric("Harga Teoritis (TERP)", f"Rp {harga_teoritis:,.0f}".replace(",", "."))
+            c3r.metric("Nilai HMETD Total", f"Rp {int(total_nilai_hmetd):,}".replace(",", "."))
+
+            c4r, c5r, _ = st.columns(3)
+            c4r.metric("Biaya Tebus", f"Rp {int(biaya_tebus):,}".replace(",", "."))
+            c5r.metric(
+                "Potensi Profit (Tebus)",
+                f"Rp {int(profit_tebus):,}".replace(",", "."),
+                delta="Untung" if profit_tebus >= 0 else "Rugi",
+                delta_color="normal" if profit_tebus >= 0 else "inverse",
+            )
+
+            if profit_tebus > 0:
+                st.success(f"✅ Jika ditebus: potensi untung Rp {int(profit_tebus):,}".replace(",", "."))
+            else:
+                st.warning(f"⚠️ Harga pelaksanaan di atas TERP — pertimbangkan jual HMETD di pasar")
+
+    # ──────────────────────────────────────────────────────────
+    # TAB 3 — KALKULATOR RECOVERY
+    # ──────────────────────────────────────────────────────────
+    with tab3:
+
+        import pandas as pd
+
+        st.subheader("📉 Kalkulator Recovery")
+        st.caption("Hitung gain yang dibutuhkan untuk balik modal & berapa nominal average down.")
+        st.markdown("---")
+
+        # ── INPUT ─────────────────────────────────────────────
+        ci1, ci2, ci3 = st.columns(3)
+        with ci1:
+            rec_harga_beli     = st.number_input(
+                "Harga beli rata-rata (Rp)",
+                min_value=1, value=1000, step=1, key="rec_beli"
+            )
+        with ci2:
+            rec_lot            = st.number_input(
+                "Jumlah lot dimiliki",
+                min_value=1, value=10, key="rec_lot"
+            )
+        with ci3:
+            rec_harga_sekarang = st.number_input(
+                "Harga sekarang (Rp)",
+                min_value=1, value=850, step=1, key="rec_sekarang"
+            )
+
+        # ── KALKULASI DASAR ───────────────────────────────────
+        modal          = rec_harga_beli * rec_lot * 100
+        nilai_skrg     = rec_harga_sekarang * rec_lot * 100
+        rugi_nominal   = nilai_skrg - modal
+        rugi_pct       = (rugi_nominal / modal) * 100
+        gain_needed    = (rec_harga_beli - rec_harga_sekarang) / rec_harga_sekarang * 100
+
+        # ── METRICS ──────────────────────────────────────────
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Modal Awal",    f"Rp {int(modal):,}".replace(",", "."))
+        m2.metric("Nilai Saat Ini", f"Rp {int(nilai_skrg):,}".replace(",", "."))
+        m3.metric(
+            "Floating Loss",
+            f"Rp {abs(int(rugi_nominal)):,}".replace(",", "."),
+            delta=f"{rugi_pct:.2f}%",
+            delta_color="inverse" if rugi_pct < 0 else "normal",
+        )
+        m4.metric(
+            "Gain untuk Balik Modal",
+            f"{gain_needed:.2f}%" if rugi_pct < 0 else "0%",
+            delta="dari harga sekarang" if rugi_pct < 0 else "Sudah profit",
+            delta_color="off",
+        )
+
+        if rugi_pct >= 0:
+            st.success("✅ Posisi sedang profit atau break even")
+        else:
+            st.error(
+                f"📌 Harga perlu naik **{gain_needed:.2f}%** "
+                f"dari Rp {rec_harga_sekarang:,} → Rp {rec_harga_beli:,}".replace(",", ".")
+            )
+
+        # ── NOMINAL UNTUK AVERAGE = HARGA SEKARANG ───────────
+        st.markdown("---")
+        st.markdown("#### 🎯 Berapa Nominal untuk Average Turun ke Target?")
+        st.caption(
+            "Hitung berapa uang yang harus dibeli **di harga sekarang** "
+            "agar average kamu turun ke harga target yang diinginkan."
+        )
+
+        # Input target average
+        target_default = max(rec_harga_sekarang + 1, int((rec_harga_beli + rec_harga_sekarang) / 2))
+        rec_target_avg = st.number_input(
+            "Target Average yang Diinginkan (Rp)",
+            min_value=rec_harga_sekarang + 1,
+            max_value=rec_harga_beli,
+            value=min(target_default, rec_harga_beli),
+            step=1,
+            key="rec_target_avg",
+            help=(
+                f"Harus di antara harga sekarang (Rp {rec_harga_sekarang:,}) "
+                f"dan harga beli (Rp {rec_harga_beli:,}). "
+                f"Makin mendekati harga sekarang → makin banyak modal dibutuhkan."
+            ).replace(",", "."),
+        )
+
+        if rec_harga_sekarang < rec_harga_beli:
+            selisih_target = rec_target_avg - rec_harga_sekarang
+            if selisih_target > 0:
+                lot_dibutuhkan  = rec_lot * (rec_harga_beli - rec_target_avg) / selisih_target
+                lot_dibutuhkan  = max(0, lot_dibutuhkan)
+                nominal_dibutuhkan = lot_dibutuhkan * 100 * rec_harga_sekarang
+
+                total_lot_stlh  = rec_lot + lot_dibutuhkan
+                total_modal_stlh = modal + nominal_dibutuhkan
+                avg_check       = total_modal_stlh / (total_lot_stlh * 100)
+                gain_stlh       = (avg_check - rec_harga_sekarang) / rec_harga_sekarang * 100
+                hemat_gain      = gain_needed - gain_stlh
+
+                # ── HASIL UTAMA ─────────────────────────────
+                ha, hb, hc = st.columns(3)
+                ha.metric(
+                    "💰 Nominal yang Harus Dibeli",
+                    f"Rp {int(nominal_dibutuhkan):,}".replace(",", "."),
+                )
+                hb.metric(
+                    "📦 Lot yang Harus Dibeli",
+                    f"± {int(lot_dibutuhkan):,} lot".replace(",", "."),
+                )
+                hc.metric(
+                    "📈 Gain Dibutuhkan Setelah Average Down",
+                    f"{gain_stlh:.2f}%",
+                    delta=f"hemat {hemat_gain:.2f}% vs sekarang",
+                    delta_color="normal",
+                )
+
+                # Info box
+                st.info(
+                    f"Dengan membeli **{int(lot_dibutuhkan):,} lot** "
+                    f"senilai **Rp {int(nominal_dibutuhkan):,}** "
+                    f"di harga Rp {rec_harga_sekarang:,}, "
+                    f"average kamu turun ke sekitar **Rp {int(avg_check):,}** "
+                    f"(target: Rp {int(rec_target_avg):,}).\n\n"
+                    f"Kamu hanya perlu gain **{gain_stlh:.2f}%** untuk break even "
+                    f"(hemat {hemat_gain:.2f}% dibanding tanpa average down)."
+                    .replace(",", ".")
+                )
+
+        # ── TABEL SKENARIO TARGET AVERAGE ─────────────────────
+        st.markdown("---")
+        st.markdown("**Tabel Skenario: Nominal per Target Average**")
+        st.caption("Semakin rendah target average → semakin besar nominal yang harus dibeli.")
+
+        if rec_harga_sekarang < rec_harga_beli:
+            gap = rec_harga_beli - rec_harga_sekarang
+            targets = [
+                int(rec_harga_beli - gap * pct / 100)
+                for pct in [20, 40, 60, 80, 95]
+            ]
+            targets = [t for t in targets if t > rec_harga_sekarang]
+
+            rows_t = []
+            for tgt in targets:
+                sel = tgt - rec_harga_sekarang
+                if sel <= 0:
+                    continue
+                lt  = rec_lot * (rec_harga_beli - tgt) / sel
+                nom = lt * 100 * rec_harga_sekarang
+                ttl = rec_lot + lt
+                avg_t = (modal + nom) / (ttl * 100)
+                g_t   = (avg_t - rec_harga_sekarang) / rec_harga_sekarang * 100
+                rows_t.append({
+                    "Target Average": f"Rp {int(tgt):,}".replace(",", "."),
+                    "Turun dari Beli": f"-{int(rec_harga_beli - tgt):,}".replace(",", "."),
+                    "Lot Harus Dibeli": f"{int(lt):,} lot".replace(",", "."),
+                    "Nominal Harus Dibeli": f"Rp {int(nom):,}".replace(",", "."),
+                    "Gain Dibutuhkan": f"{g_t:.2f}%",
+                })
+
+            if rows_t:
+                st.dataframe(
+                    pd.DataFrame(rows_t),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.caption(
+                    "💡 Catatan: Average tidak bisa sama persis dengan harga sekarang karena secara "
+                    "matematis membutuhkan modal tak terbatas. Target minimum = harga sekarang + 1."
+                )
+        else:
+            st.success("✅ Tidak perlu average down — posisi sudah profit atau break even.")
+
+    # ──────────────────────────────────────────────────────────
+    # TAB 4 — KALKULATOR DIVIDEN (SNOWBALL)
+    # ──────────────────────────────────────────────────────────
+    with tab4:
+        st.subheader("💸 Kalkulator Dividen (Snowball Effect)")
+        st.caption(
+            "Simulasi snowball effect dividen dan hitung kapan dividen bisa beli lot otomatis."
+        )
+        st.markdown("---")
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            div_lot_awal       = st.number_input("Lot awal yang dimiliki", min_value=1, value=10, key="div_lot")
+            div_harga          = st.number_input("Harga saham saat ini (Rp)", min_value=1, value=1000, step=1, key="div_harga")
+            div_per_saham      = st.number_input("Dividen per saham per tahun (Rp)", min_value=1, value=50, step=1, key="div_per_saham")
+
+        with c2:
+            div_pajak          = st.number_input("Pajak dividen (%)", min_value=0.0, max_value=100.0, value=10.0, step=0.5, key="div_pajak")
+            div_tahun          = st.slider("Simulasi (tahun)", min_value=1, max_value=30, value=10, key="div_tahun")
+            div_reinvest       = st.checkbox("Reinvest dividen (beli lot baru)", value=True, key="div_reinvest")
+
+        if st.button("Hitung Snowball", key="btn_div", use_container_width=True, type="primary"):
+            import pandas as pd
+            import plotly.graph_objects as go
+
+            rows = []
+            lot_sekarang   = div_lot_awal
+            total_dividen  = 0.0
+            sisa_kas       = 0.0
+
+            for tahun in range(1, div_tahun + 1):
+                saham_dimiliki = lot_sekarang * 100
+                dividen_kotor  = saham_dimiliki * div_per_saham
+                pajak          = dividen_kotor * (div_pajak / 100)
+                dividen_bersih = dividen_kotor - pajak
+
+                lot_beli_baru = 0
+                if div_reinvest:
+                    sisa_kas      += dividen_bersih
+                    biaya_per_lot  = div_harga * 100
+                    lot_beli_baru  = int(sisa_kas // biaya_per_lot)
+                    sisa_kas      -= lot_beli_baru * biaya_per_lot
+                    lot_sekarang  += lot_beli_baru
+
+                total_dividen += dividen_bersih
+
+                rows.append({
+                    "Tahun":            tahun,
+                    "Lot Dimiliki":     lot_sekarang,
+                    "Saham (lembar)":   lot_sekarang * 100,
+                    "Dividen Kotor":    f"Rp {int(dividen_kotor):,}".replace(",", "."),
+                    "Pajak":            f"Rp {int(pajak):,}".replace(",", "."),
+                    "Dividen Bersih":   f"Rp {int(dividen_bersih):,}".replace(",", "."),
+                    "Lot Beli Baru":    lot_beli_baru,
+                    "Sisa Kas":         f"Rp {int(sisa_kas):,}".replace(",", "."),
+                })
+
+            st.markdown("---")
+            st.markdown("#### Hasil Simulasi")
+
+            c1r, c2r, c3r = st.columns(3)
+            c1r.metric("Total Dividen Bersih", f"Rp {int(total_dividen):,}".replace(",", "."))
+            c2r.metric("Lot Akhir", f"{lot_sekarang} lot")
+            c3r.metric("Pertumbuhan Lot",
+                       f"+{lot_sekarang - div_lot_awal} lot",
+                       delta=f"{(lot_sekarang - div_lot_awal) / div_lot_awal * 100:.1f}%")
+
+            df_sim = pd.DataFrame(rows)
+            st.dataframe(df_sim, use_container_width=True, hide_index=True)
+
+            # Grafik pertumbuhan lot
+            fig_div = go.Figure()
+            fig_div.add_trace(go.Scatter(
+                x=df_sim["Tahun"],
+                y=df_sim["Lot Dimiliki"],
+                mode="lines+markers",
+                name="Total Lot",
+                line=dict(color="#22c55e", width=2.5),
+                fill="tozeroy",
+                fillcolor="rgba(34,197,94,0.12)",
+                hovertemplate="Tahun %{x}<br>Lot: %{y}<extra></extra>",
+            ))
+            fig_div.update_layout(
+                xaxis_title="Tahun",
+                yaxis_title="Lot Dimiliki",
+                height=300,
+                margin=dict(l=10, r=10, t=10, b=40),
+                plot_bgcolor="#0e1117",
+                paper_bgcolor="#0e1117",
+                font=dict(color="#f1f5f9"),
+            )
+            st.plotly_chart(fig_div, use_container_width=True)
+
+            # Kapan bisa beli lot pertama dari dividen
+            first_buy = next(
+                (r for r in rows if r["Lot Beli Baru"] > 0), None
+            )
+            if first_buy:
+                st.success(
+                    f"🎯 Pertama kali beli lot baru dari dividen: **Tahun {first_buy['Tahun']}** "
+                    f"({first_buy['Lot Beli Baru']} lot)"
+                )
+            elif not div_reinvest:
+                st.info("ℹ️ Aktifkan 'Reinvest dividen' untuk simulasi beli lot otomatis.")
+            else:
+                st.warning(
+                    "⚠️ Dalam periode simulasi ini dividen belum cukup untuk beli 1 lot. "
+                    "Coba tambah jumlah lot awal atau perpanjang periode."
+                )
+
+    # ──────────────────────────────────────────────────────────
+    # TAB 5 — KALKULATOR ALOKASI DANA
+    # ──────────────────────────────────────────────────────────
+    with tab5:
+        st.subheader("💼 Kalkulator Alokasi Dana")
+        st.caption(
+            "Simulasikan pembagian modal ke tiap strategi investasi secara proporsional."
+        )
+        st.markdown("---")
+
+        total_modal_alloc = st.number_input(
+            "Total Modal yang Tersedia (Rp)",
+            min_value=0,
+            value=10_000_000,
+            step=500_000,
+            key="alloc_modal",
+            format="%d",
+        )
+
+        st.markdown("**Masukkan Strategi dan Persentase Alokasi**")
+        st.caption("Total harus = 100%. Kosongkan nama strategi jika tidak digunakan.")
+
+        STRATEGIES = [
+            ("Swing Trade / Aktif", 40),
+            ("Dividen / Hold Jangka Panjang", 30),
+            ("Cash / Emergency Reserve", 20),
+            ("Speculative / ARA Hunter", 10),
+        ]
+
+        alloc_data = []
+        total_pct = 0.0
+
+        cols_strat = st.columns([3, 1])
+        for i, (default_name, default_pct) in enumerate(STRATEGIES):
+            c_name, c_pct = st.columns([3, 1])
+            with c_name:
+                name = st.text_input(
+                    f"Strategi {i+1}",
+                    value=default_name,
+                    key=f"alloc_name_{i}",
+                    label_visibility="collapsed",
+                )
+            with c_pct:
+                pct = st.number_input(
+                    f"% {i+1}",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=float(default_pct),
+                    step=1.0,
+                    key=f"alloc_pct_{i}",
+                    label_visibility="collapsed",
+                )
+            if name.strip():
+                alloc_data.append((name.strip(), pct))
+                total_pct += pct
+
+        if st.button("Hitung Alokasi", key="btn_alloc", use_container_width=True, type="primary"):
+            st.markdown("---")
+            st.markdown("#### Hasil Alokasi")
+
+            if abs(total_pct - 100) > 0.01:
+                st.warning(f"⚠️ Total persentase = {total_pct:.1f}% (harus 100%)")
+
+            import pandas as pd
+            import plotly.graph_objects as go
+
+            rows_alloc = []
+            for name, pct in alloc_data:
+                if pct <= 0:
+                    continue
+                nominal = total_modal_alloc * pct / 100
+                rows_alloc.append({
+                    "Strategi":   name,
+                    "Alokasi (%)": f"{pct:.1f}%",
+                    "Nominal (Rp)": f"Rp {int(nominal):,}".replace(",", "."),
+                })
+
+            if rows_alloc:
+                st.dataframe(
+                    pd.DataFrame(rows_alloc),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                # Pie chart
+                fig_pie = go.Figure(go.Pie(
+                    labels=[r["Strategi"] for r in rows_alloc],
+                    values=[alloc_data[i][1] for i, _ in enumerate(rows_alloc)],
+                    hole=0.4,
+                    marker=dict(colors=[
+                        "#22c55e", "#60a5fa", "#fbbf24", "#ef4444",
+                        "#a78bfa", "#fb923c", "#34d399", "#f472b6"
+                    ][:len(rows_alloc)]),
+                    textinfo="label+percent",
+                    hovertemplate="%{label}<br>%{percent}<extra></extra>",
+                ))
+                fig_pie.update_layout(
+                    height=350,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    paper_bgcolor="#0e1117",
+                    font=dict(color="#f1f5f9"),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+                total_nominal = sum(
+                    total_modal_alloc * pct / 100
+                    for _, pct in alloc_data
+                    if pct > 0
+                )
+                st.caption(
+                    f"Total dialokasikan: Rp {int(total_nominal):,}".replace(",", ".")
+                    + f" ({total_pct:.1f}% dari modal)"
+                )
+
+
+# ==========================================================
 # ======================= ROUTER ===========================
 # ==========================================================
 menu = st.sidebar.radio(
@@ -3676,6 +4358,7 @@ menu = st.sidebar.radio(
         "🔍 Screener",
         "🧠 Multi-Algo Screener",
         "📊 Stock Analysis",
+        "🧮 Kalkulator Saham",
         "💰 Dividend Screener",
         "📘 Strategy Guide",
         "📒 Trading Tracker - Summary",
@@ -3692,6 +4375,9 @@ elif menu == "🧠 Multi-Algo Screener":
 
 elif menu == "📊 Stock Analysis":
     render_stock_analysis()
+
+elif menu == "🧮 Kalkulator Saham":
+    render_kalkulator_saham()
 
 elif menu == "🌿 Harga CPO dan Minyak Goreng":
     render_cpo_monitor()
