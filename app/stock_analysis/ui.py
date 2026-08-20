@@ -74,6 +74,10 @@ def render_stock_analysis():
     st.markdown(f"### {sector_emoji} {company_name} ({kode})")
     st.caption(f"Sektor: {sector_name}")
 
+    # ================= COMPANY PROFILE & OWNERSHIP =================
+    from .company_profile import render_company_profile
+    render_company_profile(kode)
+
     # ================= ANALYZE =================
     if st.button("🔍 Analyze Stock"):
 
