@@ -29,13 +29,24 @@ def _fetch_idx_cached(kode: str):
     # berikutnya, bukan tersimpan 24 jam.
     from curl_cffi import requests as creq
 
+    referer = f"https://www.idx.co.id/id/perusahaan-tercatat/profil-perusahaan-tercatat/{kode}"
+
+    headers = {
+        "Referer": referer,
+        "Origin": "https://www.idx.co.id",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+
     last_err = "unknown"
 
-    for imp in ("chrome", "safari", "edge"):
+    for imp in ("chrome", "safari", "edge", "chrome_android"):
         try:
             r = creq.get(
                 IDX_PROFILE_URL.format(kode=kode),
                 impersonate=imp,
+                headers=headers,
                 timeout=15,
             )
 
@@ -90,6 +101,7 @@ def fetch_idx_profile(kode: str):
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def _fetch_yf_cached(kode: str):
+    import time
     import yfinance as yf
 
     # Sesi curl_cffi menyamar sebagai Chrome — tanpa ini Yahoo
@@ -100,19 +112,41 @@ def _fetch_yf_cached(kode: str):
     except Exception:
         session = None
 
-    try:
-        t = yf.Ticker(f"{kode}.JK", session=session)
-        info = t.info or {}
-    except TypeError:
-        # yfinance versi lama tanpa parameter session
-        t = yf.Ticker(f"{kode}.JK")
-        info = t.info or {}
+    t = None
+    info = {}
+    last_err = None
+
+    # YFRateLimitError sering transient — retry dengan backoff.
+    # 3 percobaan, jeda 2s / 5s.
+    for attempt, wait in enumerate((0, 2, 5)):
+        if wait:
+            time.sleep(wait)
+
+        try:
+            try:
+                t = yf.Ticker(f"{kode}.JK", session=session)
+                info = t.info or {}
+            except TypeError:
+                # yfinance versi lama tanpa parameter session
+                t = yf.Ticker(f"{kode}.JK")
+                info = t.info or {}
+
+            if info and (
+                info.get("longBusinessSummary") is not None
+                or info.get("marketCap") is not None
+            ):
+                break
+
+            last_err = RuntimeError("info kosong dari Yahoo")
+
+        except Exception as e:
+            last_err = e
 
     if not info or (
         info.get("longBusinessSummary") is None
         and info.get("marketCap") is None
     ):
-        raise RuntimeError("info kosong dari Yahoo")
+        raise last_err or RuntimeError("info kosong dari Yahoo")
 
     holders = {}
     try:
