@@ -38,6 +38,10 @@ from app.services.logic import detect_day_trade, detect_market_mover
 from app.services.data import get_price_data
 from app.utils.news_engine import fetch_stock_news
 
+# streamlit_cookies_manager still uses the removed `st.cache` API internally
+if not hasattr(st, "cache"):
+    st.cache = st.cache_data
+
 from streamlit_cookies_manager import EncryptedCookieManager
 from app.stock_analysis.ui import render_stock_analysis
 
