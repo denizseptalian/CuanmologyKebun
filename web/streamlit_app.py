@@ -51,6 +51,10 @@ from app.tracker.tracker import (
     save_sell,
     enrich_trades,
     delete_trade,
+    load_dividends,
+    save_dividend,
+    save_dividends,
+    delete_dividends_by_trade,
 )
 
 from app.renderers.telegram_stock_analysis import render_stock_analysis_message
@@ -1676,16 +1680,15 @@ def render_trading_summary():
 
     st.header("📊 Trading Tracker - Summary")
 
-    import os
+    from app.tracker.storage import use_gsheets
+    if not use_gsheets():
+        st.warning(
+            "⚠️ Google Sheets belum dikonfigurasi — data tersimpan di file "
+            "lokal dan akan **hilang setiap redeploy** di Streamlit Cloud. "
+            "Set `gcp_service_account` dan `TRACKER_SHEET_ID` di Secrets."
+        )
+
     import pandas as pd
-
-    DIV_FILE = "dividends.csv"
-
-    if not os.path.exists(DIV_FILE):
-        pd.DataFrame(columns=["trade_id", "date", "amount"]).to_csv(DIV_FILE, index=False)
-
-    def load_dividends():
-        return pd.read_csv(DIV_FILE)
 
     # ===================== BUY =====================
     with st.form("add_buy"):
@@ -1832,16 +1835,6 @@ def render_trading_summary():
     df = load_trades()
     st.subheader("➕ Tambah Dividen")
 
-    def save_dividend(trade_id, date, amount):
-        df = load_dividends()
-        new_row = pd.DataFrame([{
-            "trade_id": trade_id,
-            "date": date,
-            "amount": amount
-        }])
-        df = pd.concat([df, new_row], ignore_index=True)
-        df.to_csv(DIV_FILE, index=False)
-
     idx_div = st.selectbox(
         "Pilih Trade",
         df.index,
@@ -1870,21 +1863,7 @@ def render_manage_data():
         return
     st.header("⚙️ Trading Tracker - Manage Data")
 
-    import os
     import pandas as pd
-
-    DIV_FILE = "dividends.csv"
-
-    if not os.path.exists(DIV_FILE):
-        pd.DataFrame(columns=["trade_id", "date", "amount"]).to_csv(DIV_FILE, index=False)
-
-    def load_dividends():
-        return pd.read_csv(DIV_FILE)
-
-    def delete_dividends_by_trade(trade_id):
-        df = load_dividends()
-        df = df[df["trade_id"] != trade_id]
-        df.to_csv(DIV_FILE, index=False)
 
     df_trades = enrich_trades(load_trades())
     df_div = load_dividends()
@@ -2002,7 +1981,7 @@ def render_manage_data():
             if col2.button("🗑️ Ya, Hapus", key="confirm_div"):
                 df_div2 = load_dividends()
                 df_div2 = df_div2.drop(idx_div_confirm)
-                df_div2.to_csv(DIV_FILE, index=False)
+                save_dividends(df_div2)
 
                 del st.session_state["confirm_delete_div"]
                 st.success("Dividen berhasil dihapus")

@@ -46,5 +46,6 @@ plotly>=5.0.0
 curl_cffi>=0.6.0
 peewee>=3.17.0
 GitPython>=3.1.40
+gspread>=6.1.0
 narwhals>=1.0.0
 pydeck>=0.8.0

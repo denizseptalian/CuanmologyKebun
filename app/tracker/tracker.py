@@ -3,8 +3,7 @@ import os
 from datetime import date
 from app.config.saham_list import SAHAM_LIST
 from app.core.data_loader import load_daily_data
-
-DATA_PATH = "data/trades.csv"
+from app.tracker.storage import load_table, save_table
 
 COLUMNS = [
     "kode",
@@ -16,6 +15,12 @@ COLUMNS = [
     "sell_price",
     "sell_lot",
     "note",
+]
+
+DIVIDEND_COLUMNS = [
+    "trade_id",
+    "date",
+    "amount",
 ]
 
 # ======================================================
@@ -34,10 +39,7 @@ def to_int_safe(val, default=0):
 # LOAD / INIT
 # ======================================================
 def load_trades() -> pd.DataFrame:
-    if not os.path.exists(DATA_PATH) or os.path.getsize(DATA_PATH) == 0:
-        return pd.DataFrame(columns=COLUMNS)
-
-    df = pd.read_csv(DATA_PATH)
+    df = load_table("trades", COLUMNS)
     df.index.name = "trade_id"
     return df
 
@@ -50,7 +52,7 @@ def delete_trade(idx: int):
     if idx not in df.index:
         return
     df = df.drop(index=idx)
-    df.to_csv(DATA_PATH, index=False)
+    save_table("trades", df)
 
 
 # ======================================================
@@ -81,7 +83,7 @@ def save_buy(
     }
 
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    df.to_csv(DATA_PATH, index=False)
+    save_table("trades", df)
 
 
 # ======================================================
@@ -105,7 +107,37 @@ def save_sell(
     df.loc[index, "sell_lot"] = sell_lot
     df.loc[index, "remaining_lot"] = remaining - sell_lot
 
-    df.to_csv(DATA_PATH, index=False)
+    save_table("trades", df)
+
+
+# ======================================================
+# DIVIDENDS
+# ======================================================
+def load_dividends() -> pd.DataFrame:
+    return load_table("dividends", DIVIDEND_COLUMNS)
+
+
+def save_dividends(df: pd.DataFrame):
+    save_table("dividends", df)
+
+
+def save_dividend(trade_id: int, div_date: date, amount: float):
+    df = load_dividends()
+
+    new_row = {
+        "trade_id": trade_id,
+        "date": div_date,
+        "amount": amount,
+    }
+
+    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    save_dividends(df)
+
+
+def delete_dividends_by_trade(trade_id: int):
+    df = load_dividends()
+    df = df[df["trade_id"] != trade_id]
+    save_dividends(df)
 
 
 # ======================================================
