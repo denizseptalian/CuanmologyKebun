@@ -19,37 +19,54 @@ IDX_PROFILE_URL = (
 
 
 # ==========================================================
-# FETCH IDX (CACHED)
+# FETCH IDX (CACHED — kegagalan TIDAK di-cache)
 # ==========================================================
 
 @st.cache_data(ttl=86400, show_spinner=False)
+def _fetch_idx_cached(kode: str):
+    # Exception tidak di-cache oleh st.cache_data, jadi kegagalan
+    # sementara (situs down / diblokir) akan dicoba ulang di rerun
+    # berikutnya, bukan tersimpan 24 jam.
+    from curl_cffi import requests as creq
+
+    last_err = "unknown"
+
+    for imp in ("chrome", "safari", "edge"):
+        try:
+            r = creq.get(
+                IDX_PROFILE_URL.format(kode=kode),
+                impersonate=imp,
+                timeout=15,
+            )
+
+            if r.status_code != 200:
+                last_err = f"HTTP {r.status_code}"
+                continue
+
+            data = r.json()
+
+            if data.get("Profiles"):
+                return data
+
+            last_err = "respons kosong"
+
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {str(e)[:80]}"
+
+    raise RuntimeError(last_err)
+
+
 def fetch_idx_profile(kode: str):
     """Ambil profil + pemegang saham + pengurus dari API IDX.
 
-    Return dict, atau None jika gagal (situs diblokir / timeout).
+    Return (dict, None) jika sukses, (None, pesan_error) jika gagal.
     """
     try:
-        from curl_cffi import requests as creq
+        data = _fetch_idx_cached(kode)
+    except Exception as e:
+        return None, str(e)
 
-        r = creq.get(
-            IDX_PROFILE_URL.format(kode=kode),
-            impersonate="chrome",
-            timeout=15,
-        )
-
-        if r.status_code != 200:
-            return None
-
-        data = r.json()
-
-    except Exception:
-        return None
-
-    profiles = data.get("Profiles") or []
-    if not profiles:
-        return None
-
-    p = profiles[0]
+    p = data["Profiles"][0]
 
     return {
         "nama": p.get("NamaEmiten"),
@@ -64,7 +81,7 @@ def fetch_idx_profile(kode: str):
         "pemegang_saham": data.get("PemegangSaham") or [],
         "direktur": data.get("Direktur") or [],
         "komisaris": data.get("Komisaris") or [],
-    }
+    }, None
 
 
 # ==========================================================
@@ -72,17 +89,30 @@ def fetch_idx_profile(kode: str):
 # ==========================================================
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def fetch_yf_profile(kode: str):
+def _fetch_yf_cached(kode: str):
     import yfinance as yf
 
+    # Sesi curl_cffi menyamar sebagai Chrome — tanpa ini Yahoo
+    # sering menolak request dari IP datacenter (Streamlit Cloud)
     try:
+        from curl_cffi import requests as creq
+        session = creq.Session(impersonate="chrome")
+    except Exception:
+        session = None
+
+    try:
+        t = yf.Ticker(f"{kode}.JK", session=session)
+        info = t.info or {}
+    except TypeError:
+        # yfinance versi lama tanpa parameter session
         t = yf.Ticker(f"{kode}.JK")
         info = t.info or {}
-    except Exception:
-        return None
 
-    if not info:
-        return None
+    if not info or (
+        info.get("longBusinessSummary") is None
+        and info.get("marketCap") is None
+    ):
+        raise RuntimeError("info kosong dari Yahoo")
 
     holders = {}
     try:
@@ -105,6 +135,7 @@ def fetch_yf_profile(kode: str):
                 "Jabatan": o.get("title", "-"),
             })
 
+    # return dict polos supaya aman di-pickle oleh st.cache_data
     return {
         "summary": info.get("longBusinessSummary"),
         "market_cap": info.get("marketCap"),
@@ -113,6 +144,14 @@ def fetch_yf_profile(kode: str):
         "institution_pct": holders.get("institutionsPercentHeld"),
         "officers": officers,
     }
+
+
+def fetch_yf_profile(kode: str):
+    """Return (dict, None) jika sukses, (None, pesan_error) jika gagal."""
+    try:
+        return _fetch_yf_cached(kode), None
+    except Exception as e:
+        return None, f"{type(e).__name__}: {str(e)[:80]}"
 
 
 # ==========================================================
@@ -152,12 +191,20 @@ def render_company_profile(kode: str):
     with st.expander("🏢 Profil Perusahaan & Kepemilikan", expanded=False):
 
         with st.spinner("Mengambil profil perusahaan dari IDX..."):
-            idx = fetch_idx_profile(kode)
-            yf_data = fetch_yf_profile(kode)
+            idx, idx_err = fetch_idx_profile(kode)
+            yf_data, yf_err = fetch_yf_profile(kode)
 
         if idx is None and yf_data is None:
             st.info("Profil perusahaan tidak tersedia untuk emiten ini.")
+            st.caption(f"Detail — IDX: {idx_err} | Yahoo Finance: {yf_err}")
             return
+
+        if idx is None:
+            st.caption(
+                f"⚠️ Data pemegang saham per-nama dari IDX tidak dapat "
+                f"diakses saat ini ({idx_err}) — menampilkan data agregat "
+                f"dari Yahoo Finance sebagai gantinya."
+            )
 
         # ================= DESKRIPSI =================
         st.markdown("#### 📄 Company Overview")
