@@ -1,0 +1,37 @@
+name: Update Company Profiles Cache
+
+on:
+  schedule:
+    # Setiap hari jam 02:00 WIB (19:00 UTC) — di luar jam bursa
+    - cron: '0 19 * * *'
+  workflow_dispatch:  # Bisa juga trigger manual dari tab Actions
+
+jobs:
+  update-cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install curl_cffi yfinance pandas pyarrow
+
+      - name: Update company profiles cache
+        run: python update_company_profiles_cache.py
+
+      - name: Commit & push jika ada data baru
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/company_profiles_cache.parquet
+          git diff --staged --quiet && echo "Tidak ada perubahan." || (
+            git commit -m "auto: update company profiles cache $(date +'%Y-%m-%d')" &&
+            git push
+          )
