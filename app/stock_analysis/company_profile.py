@@ -1,31 +1,82 @@
 # ==========================================================
-# 🏢 COMPANY PROFILE & OWNERSHIP (INSIDER)
+# 🏢 COMPANY PROFILE & OWNERSHIP
 # ==========================================================
-# Menampilkan deskripsi profil perusahaan dan struktur
-# kepemilikan (insider vs institusi vs publik) dari Yahoo
-# Finance untuk halaman Stock Analysis.
+# Sumber utama : API resmi IDX (idx.co.id) — pemegang saham
+#                per nama + persentase, direksi, komisaris,
+#                profil perusahaan berbahasa Indonesia.
+# Fallback     : Yahoo Finance (deskripsi bisnis, market cap,
+#                agregat kepemilikan) jika IDX tidak bisa
+#                diakses dari server.
 # ==========================================================
 
 import pandas as pd
 import streamlit as st
 
+IDX_PROFILE_URL = (
+    "https://www.idx.co.id/primary/ListedCompany/"
+    "GetCompanyProfilesDetail?KodeEmiten={kode}&language=id-id"
+)
+
 
 # ==========================================================
-# FETCH (CACHED)
+# FETCH IDX (CACHED)
 # ==========================================================
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def fetch_company_profile(kode: str):
-    """Ambil profil + data kepemilikan dari yfinance.
+def fetch_idx_profile(kode: str):
+    """Ambil profil + pemegang saham + pengurus dari API IDX.
 
-    Return dict, atau None jika data tidak bisa diambil.
+    Return dict, atau None jika gagal (situs diblokir / timeout).
     """
+    try:
+        from curl_cffi import requests as creq
+
+        r = creq.get(
+            IDX_PROFILE_URL.format(kode=kode),
+            impersonate="chrome",
+            timeout=15,
+        )
+
+        if r.status_code != 200:
+            return None
+
+        data = r.json()
+
+    except Exception:
+        return None
+
+    profiles = data.get("Profiles") or []
+    if not profiles:
+        return None
+
+    p = profiles[0]
+
+    return {
+        "nama": p.get("NamaEmiten"),
+        "kegiatan_usaha": p.get("KegiatanUsahaUtama"),
+        "sektor": p.get("Sektor"),
+        "industri": p.get("Industri"),
+        "sub_industri": p.get("SubIndustri"),
+        "alamat": p.get("Alamat"),
+        "website": p.get("Website"),
+        "papan": p.get("PapanPencatatan"),
+        "tanggal_ipo": p.get("TanggalPencatatan"),
+        "pemegang_saham": data.get("PemegangSaham") or [],
+        "direktur": data.get("Direktur") or [],
+        "komisaris": data.get("Komisaris") or [],
+    }
+
+
+# ==========================================================
+# FETCH YAHOO FINANCE (CACHED) — deskripsi & fallback
+# ==========================================================
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_yf_profile(kode: str):
     import yfinance as yf
 
-    symbol = f"{kode}.JK"
-
     try:
-        t = yf.Ticker(symbol)
+        t = yf.Ticker(f"{kode}.JK")
         info = t.info or {}
     except Exception:
         return None
@@ -33,32 +84,19 @@ def fetch_company_profile(kode: str):
     if not info:
         return None
 
-    # ---------- STRUKTUR KEPEMILIKAN ----------
     holders = {}
     try:
         mh = t.major_holders
         if mh is not None and not mh.empty:
             if "Value" in mh.columns:
-                # format yfinance baru: index = Breakdown
                 for k, v in mh["Value"].items():
                     holders[str(k)] = v
             else:
-                # format lama: kolom 0 = nilai, kolom 1 = label
                 for _, r in mh.iterrows():
                     holders[str(r.iloc[1])] = r.iloc[0]
     except Exception:
         pass
 
-    # ---------- INSTITUTIONAL HOLDERS ----------
-    inst_df = pd.DataFrame()
-    try:
-        raw = t.institutional_holders
-        if raw is not None and not raw.empty:
-            inst_df = raw
-    except Exception:
-        pass
-
-    # ---------- DIREKSI / MANAJEMEN (INSIDER) ----------
     officers = []
     for o in info.get("companyOfficers") or []:
         if o.get("name"):
@@ -69,15 +107,10 @@ def fetch_company_profile(kode: str):
 
     return {
         "summary": info.get("longBusinessSummary"),
-        "sector": info.get("sector"),
-        "industry": info.get("industry"),
-        "website": info.get("website"),
-        "employees": info.get("fullTimeEmployees"),
         "market_cap": info.get("marketCap"),
+        "employees": info.get("fullTimeEmployees"),
         "insider_pct": holders.get("insidersPercentHeld"),
         "institution_pct": holders.get("institutionsPercentHeld"),
-        "institution_count": holders.get("institutionsCount"),
-        "institutional_holders": inst_df,
         "officers": officers,
     }
 
@@ -94,10 +127,20 @@ def _fmt_market_cap(mcap):
     return f"Rp {mcap / 1_000_000_000:,.1f} M"
 
 
-def _fmt_pct(val):
-    if val is None:
-        return None
-    return round(float(val) * 100, 2)
+def _fmt_shares(n):
+    try:
+        return f"{int(n):,}".replace(",", ".")
+    except Exception:
+        return "-"
+
+
+def _fmt_tanggal(iso):
+    if not iso:
+        return "-"
+    try:
+        return pd.to_datetime(iso).strftime("%d %b %Y")
+    except Exception:
+        return str(iso)
 
 
 # ==========================================================
@@ -108,107 +151,183 @@ def render_company_profile(kode: str):
 
     with st.expander("🏢 Profil Perusahaan & Kepemilikan", expanded=False):
 
-        with st.spinner("Mengambil profil perusahaan..."):
-            data = fetch_company_profile(kode)
+        with st.spinner("Mengambil profil perusahaan dari IDX..."):
+            idx = fetch_idx_profile(kode)
+            yf_data = fetch_yf_profile(kode)
 
-        if data is None:
+        if idx is None and yf_data is None:
             st.info("Profil perusahaan tidak tersedia untuk emiten ini.")
             return
 
         # ================= DESKRIPSI =================
-        if data["summary"]:
-            st.markdown("#### 📄 Deskripsi Perusahaan")
-            st.write(data["summary"])
+        st.markdown("#### 📄 Company Overview")
+
+        if yf_data and yf_data.get("summary"):
+            st.write(yf_data["summary"])
+        elif idx and idx.get("kegiatan_usaha"):
+            st.write(idx["kegiatan_usaha"])
         else:
             st.caption("Deskripsi perusahaan tidak tersedia.")
 
         # ================= INFO SINGKAT =================
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Market Cap", _fmt_market_cap(data["market_cap"]))
-        c2.metric(
-            "Karyawan",
-            f"{data['employees']:,}" if data["employees"] else "-",
-        )
-        c3.metric("Sektor", data["sector"] or "-")
-        c4.metric("Industri", data["industry"] or "-")
 
-        if data["website"]:
-            st.caption(f"🌐 Website: {data['website']}")
+        c1.metric(
+            "Market Cap",
+            _fmt_market_cap(yf_data["market_cap"]) if yf_data else "-",
+        )
+
+        if idx:
+            c2.metric("Sektor", idx["sektor"] or "-")
+            c3.metric("Papan", idx["papan"] or "-")
+            c4.metric("Listing", _fmt_tanggal(idx["tanggal_ipo"]))
+
+            det1, det2 = st.columns(2)
+            with det1:
+                if idx["kegiatan_usaha"]:
+                    st.caption(f"**Kegiatan usaha:** {idx['kegiatan_usaha']}")
+                if idx["industri"]:
+                    st.caption(f"**Industri:** {idx['industri']}")
+            with det2:
+                if idx["website"]:
+                    st.caption(f"🌐 {idx['website']}")
+                if idx["alamat"]:
+                    alamat = " ".join(str(idx["alamat"]).split())
+                    st.caption(f"📍 {alamat}")
+        elif yf_data:
+            c2.metric(
+                "Karyawan",
+                f"{yf_data['employees']:,}" if yf_data["employees"] else "-",
+            )
 
         st.divider()
 
-        # ================= STRUKTUR KEPEMILIKAN =================
-        st.markdown("#### 🧑‍💼 Struktur Kepemilikan")
+        # ==========================================================
+        # PEMEGANG SAHAM (DATA IDX — PER NAMA + PERSENTASE)
+        # ==========================================================
+        if idx and idx["pemegang_saham"]:
 
-        insider = _fmt_pct(data["insider_pct"])
-        institution = _fmt_pct(data["institution_pct"])
+            st.markdown("#### 🧑‍💼 Pemegang Saham")
+            st.caption("Sumber: IDX (Bursa Efek Indonesia)")
 
-        if insider is None and institution is None:
-            st.info("Data kepemilikan tidak tersedia untuk emiten ini.")
-        else:
-            insider = insider or 0.0
-            institution = institution or 0.0
-            public = max(0.0, round(100 - insider - institution, 2))
+            rows = []
+            for s in idx["pemegang_saham"]:
+                jumlah = s.get("Jumlah") or 0
+                pct = s.get("Persentase") or 0
+                if jumlah <= 0 and pct <= 0:
+                    continue
+                rows.append({
+                    "Nama": s.get("Nama", "-"),
+                    "Kategori": s.get("Kategori", "-"),
+                    "Jumlah Saham": _fmt_shares(jumlah),
+                    "Persentase": f"{pct:.2f}%",
+                    "Pengendali": "✅" if s.get("Pengendali") else "",
+                    "_pct": pct,
+                })
 
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Insider / Pengendali", f"{insider:.2f}%")
-            m2.metric("Institusi", f"{institution:.2f}%")
-            m3.metric("Publik & Lainnya", f"{public:.2f}%")
-
-            if data["institution_count"]:
-                st.caption(
-                    f"Jumlah institusi tercatat: "
-                    f"{int(data['institution_count']):,}"
+            if rows:
+                df_ps = (
+                    pd.DataFrame(rows)
+                    .sort_values("_pct", ascending=False)
+                    .drop(columns="_pct")
                 )
 
-            # Donut chart komposisi
-            import plotly.graph_objects as go
+                st.dataframe(
+                    df_ps,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
-            fig = go.Figure(go.Pie(
-                labels=["Insider / Pengendali", "Institusi", "Publik & Lainnya"],
-                values=[insider, institution, public],
-                hole=0.5,
-                marker=dict(colors=["#ef4444", "#3b82f6", "#22c55e"]),
-                textinfo="label+percent",
-                hovertemplate="%{label}: %{value:.2f}%<extra></extra>",
-            ))
-            fig.update_layout(
-                height=300,
-                margin=dict(l=10, r=10, t=10, b=10),
-                showlegend=False,
-            )
-            st.plotly_chart(fig, use_container_width=True)
+                # Donut komposisi kepemilikan
+                donut = [(r["Nama"], r["_pct"]) for r in rows if r["_pct"] > 0]
 
+                if donut:
+                    import plotly.graph_objects as go
+
+                    fig = go.Figure(go.Pie(
+                        labels=[d[0] for d in donut],
+                        values=[d[1] for d in donut],
+                        hole=0.5,
+                        textinfo="label+percent",
+                        hovertemplate="%{label}: %{value:.2f}%<extra></extra>",
+                    ))
+                    fig.update_layout(
+                        height=340,
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        showlegend=False,
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+        elif yf_data:
+            # -------- fallback agregat Yahoo Finance --------
+            st.markdown("#### 🧑‍💼 Struktur Kepemilikan (agregat)")
             st.caption(
-                "ℹ️ *Insider* versi Yahoo Finance mencakup pemegang saham "
-                "pengendali dan manajemen internal perusahaan."
+                "Data per-nama dari IDX tidak dapat diakses — "
+                "menampilkan agregat dari Yahoo Finance."
             )
 
-        # ================= DIREKSI / MANAJEMEN =================
-        if data["officers"]:
+            insider = yf_data.get("insider_pct")
+            institution = yf_data.get("institution_pct")
+
+            if insider is None and institution is None:
+                st.info("Data kepemilikan tidak tersedia.")
+            else:
+                insider = round((insider or 0) * 100, 2)
+                institution = round((institution or 0) * 100, 2)
+                public = max(0.0, round(100 - insider - institution, 2))
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Insider / Pengendali", f"{insider:.2f}%")
+                m2.metric("Institusi", f"{institution:.2f}%")
+                m3.metric("Publik & Lainnya", f"{public:.2f}%")
+
+        # ==========================================================
+        # DIREKSI & KOMISARIS
+        # ==========================================================
+        direksi = (idx or {}).get("direktur") or []
+        komisaris = (idx or {}).get("komisaris") or []
+
+        if direksi or komisaris:
             st.divider()
-            st.markdown("#### 👔 Manajemen & Direksi (Insider)")
+            col_d, col_k = st.columns(2)
+
+            with col_d:
+                st.markdown("#### 👔 Direksi")
+                if direksi:
+                    st.dataframe(
+                        pd.DataFrame([
+                            {
+                                "Nama": d.get("Nama", "-"),
+                                "Jabatan": str(d.get("Jabatan", "-")).title(),
+                                "Afiliasi": "✅" if d.get("Afiliasi") else "",
+                            }
+                            for d in direksi
+                        ]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            with col_k:
+                st.markdown("#### 🎓 Komisaris")
+                if komisaris:
+                    st.dataframe(
+                        pd.DataFrame([
+                            {
+                                "Nama": k.get("Nama", "-"),
+                                "Jabatan": str(k.get("Jabatan", "-")).title(),
+                                "Independen": "✅" if k.get("Independen") else "",
+                            }
+                            for k in komisaris
+                        ]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+        elif yf_data and yf_data.get("officers"):
+            st.divider()
+            st.markdown("#### 👔 Manajemen & Direksi")
             st.dataframe(
-                pd.DataFrame(data["officers"]),
+                pd.DataFrame(yf_data["officers"]),
                 use_container_width=True,
                 hide_index=True,
             )
-
-        # ================= INSTITUTIONAL HOLDERS =================
-        inst_df = data["institutional_holders"]
-        if inst_df is not None and not inst_df.empty:
-            st.divider()
-            st.markdown("#### 🏦 Pemegang Saham Institusi Tercatat")
-
-            show = inst_df.copy()
-            if "pctHeld" in show.columns:
-                show["pctHeld"] = (show["pctHeld"] * 100).round(4)
-                show = show.rename(columns={"pctHeld": "Kepemilikan (%)"})
-            show = show.rename(columns={
-                "Date Reported": "Tanggal Lapor",
-                "Holder": "Institusi",
-                "Shares": "Jumlah Saham",
-                "Value": "Nilai",
-            })
-
-            st.dataframe(show, use_container_width=True, hide_index=True)
