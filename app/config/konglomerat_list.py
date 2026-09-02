@@ -1,12 +1,26 @@
 # ==========================================================
 # DAFTAR AFILIASI GRUP KONGLOMERASI — SUMBER: DATA MANUAL PENGGUNA
+# + VERIFIKASI RISET WEB (2026-09-03)
 # ==========================================================
 # CATATAN PENTING: Data kepemilikan/afiliasi di bawah ini BUKAN dari
 # sumber resmi IDX/OJK yang terverifikasi otomatis — ini kompilasi
-# riset manual (dari pengguna aplikasi ini). Selalu cek ulang ke
-# laporan keterbukaan informasi / prospektus resmi sebelum dipakai
-# sebagai dasar keputusan investasi. Satu kode saham bisa muncul di
-# lebih dari satu grup kalau memang dimiliki bersama (joint venture).
+# riset manual (dari pengguna aplikasi ini) yang sebagian barisnya
+# dilengkapi lewat riset berita keuangan (Kontan, Bisnis.com, CNBC
+# Indonesia, dll). Selalu cek ulang ke laporan keterbukaan informasi
+# / prospektus resmi sebelum dipakai sebagai dasar keputusan
+# investasi. Satu kode saham bisa muncul di lebih dari satu grup
+# kalau memang dimiliki bersama (joint venture).
+#
+# Beberapa kode dari daftar awal SENGAJA TIDAK dimasukkan karena
+# riset menemukan afiliasinya sudah tidak berlaku lagi:
+#   - GZCO (Prajogo Pangestu keluar sejak Okt 2023, kini dikendalikan
+#     Tjandra Mindharta Gozali — tidak terkait Barito Pacific)
+#   - PADI (Hapsoro melepas seluruh sahamnya Maret 2026)
+#   - LINK (masih dikendalikan Axiata; rencana divestasi ke
+#     Sinarmas baru sebatas rumor, belum terealisasi)
+#   - PYFA (dikendalikan Rejuve Global Investment/Lee Ee Ling,
+#     tidak terkait Sinarmas — alamat kantor di gedung Sinarmas
+#     hanya kebetulan sewa gedung)
 # ==========================================================
 
 KONGLOMERAT_LIST = {
@@ -19,6 +33,9 @@ KONGLOMERAT_LIST = {
         {"kode": "UNSP", "nama": "Bakrie Sumatera Plantations", "sektor": "Perkebunan", "status": "Pengendali", "catatan": ""},
         {"kode": "DEWA", "nama": "Darma Henwa", "sektor": "Kontraktor Tambang", "status": "Pengendali", "catatan": ""},
         {"kode": "VIVA", "nama": "Visi Media Asia", "sektor": "Media", "status": "Pengendali", "catatan": "Punya riwayat suspensi panjang - cek status terkini di BEI"},
+        {"kode": "JGLE", "nama": "Graha Andrasentra Propertindo", "sektor": "Properti & Rekreasi (Jungleland)", "status": "Afiliasi", "catatan": "Anak usaha ELTY (38,76%); mayoritas Jungleland Asia sudah dilepas ke investor luar Sept 2022"},
+        {"kode": "MDIA", "nama": "Intermedia Capital", "sektor": "Media & Konten (induk ANTV)", "status": "Afiliasi", "catatan": "VIVA menguasai 80,73%; masuk daftar HSC (pengawasan khusus) BEI Agustus 2026"},
+        {"kode": "VKTR", "nama": "VKTR Teknologi Mobilitas", "sektor": "Manufaktur Kendaraan Listrik", "status": "Pengendali", "catatan": "BNBR + Bakrie Steel Industries ~39,86%; investor global (Glencore, dll) mulai masuk 2026"},
     ],
     "Salim": [
         {"kode": "INDF", "nama": "Indofood Sukses Makmur", "sektor": "Konsumer", "status": "Pengendali", "catatan": ""},
@@ -32,6 +49,10 @@ KONGLOMERAT_LIST = {
         {"kode": "PANI", "nama": "Pantai Indah Kapuk Dua", "sektor": "Properti", "status": "Pengendali (JV)", "catatan": "Patungan dengan Agung Sedayu (Aguan)"},
         {"kode": "CBDK", "nama": "Bangun Kosambi Sukses", "sektor": "Properti", "status": "Pengendali (JV)", "catatan": "Anak usaha PANI, patungan dengan Agung Sedayu"},
         {"kode": "EMTK", "nama": "Elang Mahkota Teknologi", "sektor": "Media / Teknologi", "status": "Minoritas", "catatan": "Kepemilikan Salim sekitar 15%"},
+        {"kode": "AHAP", "nama": "Asuransi Harta Aman Pratama", "sektor": "Asuransi Umum", "status": "Pengendali", "catatan": "Via Asuransi Central Asia 62,57% (Anthoni Salim Komisaris Utama ACA); direksi/komisaris mundur berjamaah 2023"},
+        {"kode": "ROTI", "nama": "Nippon Indosari Corpindo", "sektor": "Konsumer (Sari Roti)", "status": "Afiliasi", "catatan": "Anthoni Salim & Wendy Yap tercatat beneficial owner; persentase terkini tidak dipublikasikan spesifik"},
+        {"kode": "DCII", "nama": "DCI Indonesia", "sektor": "Data Center", "status": "Minoritas", "catatan": "Anthoni Salim ~11,12%, bukan pengendali (pengendali: Otto Toto Sugiri & Marina Budiman)"},
+        {"kode": "AMMN", "nama": "Amman Mineral Internasional", "sektor": "Pertambangan (Tembaga & Emas)", "status": "Minoritas (dulu Pengendali)", "catatan": "Kendali beralih ke entitas Singapura sejak Nov 2024; Salim terus melepas saham sepanjang 2026, sisa eksposur ~6% per akhir 2025"},
     ],
     "Prayogo Pangestu": [
         {"kode": "BRPT", "nama": "Barito Pacific", "sektor": "Holding Energi & Petrokimia", "status": "Pengendali", "catatan": ""},
@@ -46,12 +67,17 @@ KONGLOMERAT_LIST = {
         {"kode": "RATU", "nama": "Raharja Energi Cepu", "sektor": "Minyak & Gas", "status": "Pengendali", "catatan": "Anak usaha RAJA"},
         {"kode": "BUVA", "nama": "Bukit Uluwatu Villa", "sektor": "Perhotelan", "status": "Afiliasi", "catatan": ""},
         {"kode": "IATA", "nama": "Indonesia Transport & Infrastructure", "sektor": "Transportasi", "status": "Afiliasi", "catatan": ""},
+        {"kode": "MINA", "nama": "Sanurhasta Mitra", "sektor": "Properti (Resort/Villa Bali)", "status": "Pengendali", "catatan": "Via Basis Utama Prima ~30,48% + kepemilikan langsung ~19,68%"},
+        {"kode": "SINI", "nama": "Singaraja Putra", "sektor": "Akomodasi / Kayu / Jasa Tambang", "status": "Afiliasi", "catatan": "Pemegang saham terbesar kedua via Basis Energi Prima (>9%) + langsung ~3,89%"},
+        {"kode": "UANG", "nama": "Pakuan", "sektor": "Properti & Rekreasi", "status": "Afiliasi", "catatan": "19,35% saham (Nov 2025), pemegang saham terbesar kedua"},
     ],
     "Aguan": [
         {"kode": "PANI", "nama": "Pantai Indah Kapuk Dua", "sektor": "Properti", "status": "Pengendali (JV)", "catatan": "Patungan Agung Sedayu dengan Grup Salim"},
         {"kode": "CBDK", "nama": "Bangun Kosambi Sukses", "sektor": "Properti", "status": "Pengendali (JV)", "catatan": "Pengelola CBD PIK 2"},
         {"kode": "SCBD", "nama": "Danayasa Arthatama", "sektor": "Properti / Perhotelan", "status": "Minoritas", "catatan": "Pemilik kawasan SCBD; kepemilikan Aguan sekitar 7%"},
         {"kode": "INPC", "nama": "Bank Artha Graha Internasional", "sektor": "Perbankan", "status": "Minoritas", "catatan": "Kepemilikan langsung sekitar 2%"},
+        {"kode": "ERAA", "nama": "Erajaya Swasembada", "sektor": "Ritel & Distribusi Telekomunikasi", "status": "Pengendali", "catatan": "Via Eralink International 55,17%; UBO Rebecca Halim (istri Aguan) 32,04% + Aguan langsung 13,79%"},
+        {"kode": "ERAL", "nama": "Sinar Eka Selaras", "sektor": "Ritel Elektronik & Apparel", "status": "Pengendali", "catatan": "Anak usaha ERAA (79,9998%), terafiliasi Agung Sedayu lewat rantai kepemilikan ERAA"},
     ],
     "Sinarmas": [
         {"kode": "SMMA", "nama": "Sinar Mas Multiartha", "sektor": "Jasa Keuangan", "status": "Pengendali", "catatan": ""},
@@ -63,6 +89,8 @@ KONGLOMERAT_LIST = {
         {"kode": "SMAR", "nama": "SMART", "sektor": "Perkebunan / CPO", "status": "Pengendali", "catatan": ""},
         {"kode": "BSDE", "nama": "Bumi Serpong Damai", "sektor": "Properti", "status": "Pengendali", "catatan": ""},
         {"kode": "DUTI", "nama": "Duta Pertiwi", "sektor": "Properti", "status": "Pengendali", "catatan": "Anak usaha BSDE"},
+        {"kode": "DMAS", "nama": "Puradelta Lestari", "sektor": "Properti — Kawasan Industri", "status": "Pengendali", "catatan": "Via Sumber Arus Mulia/Sinar Mas Land 57,28%; mitra JV Sojitz Jepang 25%"},
+        {"kode": "EXCL", "nama": "XLSmart Telecom Sejahtera (eks XL Axiata)", "sektor": "Telekomunikasi Seluler", "status": "Pengendali", "catatan": "Sinarmas ambil alih 66,25% dari Axiata April 2025 + merger dgn Smartfren; Axiata masih pengendali bersama"},
     ],
     "Thohir Group": [
         {"kode": "ADRO", "nama": "Alamtri Resources Indonesia (d/h Adaro Energy)", "sektor": "Batu Bara / Energi", "status": "Pengendali", "catatan": ""},
@@ -72,6 +100,8 @@ KONGLOMERAT_LIST = {
         {"kode": "MBMA", "nama": "Merdeka Battery Materials", "sektor": "Nikel / Bahan Baterai", "status": "Afiliasi", "catatan": "Anak usaha MDKA"},
         {"kode": "ABBA", "nama": "Mahaka Media", "sektor": "Media", "status": "Afiliasi", "catatan": "Kepemilikan keluarga Thohir berubah sejak Erick Thohir menjabat menteri"},
         {"kode": "MARI", "nama": "Mahaka Radio Integra", "sektor": "Media / Radio", "status": "Afiliasi", "catatan": ""},
+        {"kode": "BFIN", "nama": "BFI Finance Indonesia", "sektor": "Pembiayaan / Multifinance", "status": "Pengendali", "catatan": "Via Trinugraha Capital bersama Jerry Ng, 51,12%"},
+        {"kode": "ESSA", "nama": "ESSA Industries Indonesia", "sektor": "Energi & Kimia (LPG/Amoniak)", "status": "Afiliasi", "catatan": "Bukan pengendali; Boy Thohir individu ~13,41% (menyusut), pengendali resmi kini Chander Vinod Laroya 18,88%"},
     ],
     "Djarum Group": [
         {"kode": "BBCA", "nama": "Bank Central Asia", "sektor": "Perbankan", "status": "Pengendali", "catatan": ""},
@@ -79,6 +109,9 @@ KONGLOMERAT_LIST = {
         {"kode": "SUPR", "nama": "Solusi Tunas Pratama", "sektor": "Menara Telekomunikasi", "status": "Pengendali", "catatan": "Anak usaha TOWR"},
         {"kode": "BELI", "nama": "Global Digital Niaga (Blibli)", "sektor": "E-commerce", "status": "Pengendali", "catatan": ""},
         {"kode": "GOTO", "nama": "GoTo Gojek Tokopedia", "sektor": "Teknologi", "status": "Minoritas", "catatan": "Kepemilikan minoritas lewat entitas grup"},
+        {"kode": "DATA", "nama": "Remala Abadi", "sektor": "Internet Service Provider", "status": "Pengendali", "catatan": "Protelindo (anak usaha TOWR) kuasai 51% setelah akuisisi Juli 2026"},
+        {"kode": "HEAL", "nama": "Medikaloka Hermina", "sektor": "Rumah Sakit", "status": "Minoritas", "catatan": "Dwimuria Investama Andalan (kendaraan Hartono, juga pengendali BBCA) ~3,64%, bukan pengendali"},
+        {"kode": "RANC", "nama": "Supra Boga Lestari", "sektor": "Ritel — Supermarket Premium", "status": "Pengendali", "catatan": "Via Global Digital Niaga/Blibli 70,56% (Ranch Market, Farmers Market)"},
     ],
     "Low Tuck Kwong": [
         {"kode": "BYAN", "nama": "Bayan Resources", "sektor": "Batu Bara", "status": "Pengendali", "catatan": "Emiten utama; sebagian besar aset lain tidak tercatat di BEI"},
