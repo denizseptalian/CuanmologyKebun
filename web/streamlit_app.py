@@ -1339,12 +1339,40 @@ def _augment_daily_with_intraday(daily_df, intraday_df):
     return pd.concat([daily_df, today_bar])
 
 
+def _build_sector_map(codes):
+    """kode -> label sektor resmi IDX-IC (dari snapshot GitHub Actions),
+    fallback ke kategori ad-hoc SAHAM_SECTOR kalau kode belum ada di
+    snapshot (mis. snapshot belum pernah jalan / emiten baru IPO)."""
+    from app.config.saham_sector import SAHAM_SECTOR
+    from app.stock_analysis.profile_cache import load_cache
+
+    official = {}
+    try:
+        cache_df = load_cache()
+        if not cache_df.empty and "sektor" in cache_df.columns:
+            for _, row in cache_df[["kode", "sektor"]].dropna().iterrows():
+                sek = str(row["sektor"]).strip()
+                if sek:
+                    official[row["kode"]] = sek
+    except Exception:
+        pass
+
+    result = {}
+    for code in codes:
+        if code in official:
+            result[code] = official[code]
+        else:
+            result[code] = _SECTOR_LABEL_ID.get(SAHAM_SECTOR.get(code, "OTHER"), "Lainnya")
+    return result
+
+
 @st.cache_data(ttl=120)
 def _load_market_movers_data():
     import yfinance as yf
     from app.config.hot_saham_list import HOT_SAHAM_LIST
-    from app.config.saham_sector import SAHAM_SECTOR
     from app.utils.broker_flow import calc_flow_from_price
+
+    sector_map = _build_sector_map(HOT_SAHAM_LIST)
 
     tickers = [f"{code}.JK" for code in HOT_SAHAM_LIST]
 
@@ -1401,7 +1429,7 @@ def _load_market_movers_data():
 
         rows.append({
             "Kode": code,
-            "Sektor": SAHAM_SECTOR.get(code, "OTHER"),
+            "Sektor": sector_map.get(code, "Lainnya"),
             "Tanggal": daily.index[-1].date(),
             "Close": last_close,
             "Perubahan (%)": round(chg_pct, 2),
@@ -1659,8 +1687,9 @@ def render_market_overview():
 
     st.caption(
         "📌 Ranking di bawah dihitung dari daftar HOT_SAHAM_LIST (bukan seluruh saham IDX). "
-        "Kolom **Net Asing Estimasi** adalah estimasi pola VSA dari harga & volume — "
-        "**bukan data transaksi broker/asing riil**."
+        "Sektor memakai klasifikasi resmi IDX-IC dari snapshot harian; emiten yang belum "
+        "sempat ter-refresh memakai kategori sementara. Kolom **Net Asing Estimasi** adalah "
+        "estimasi pola VSA dari harga & volume — **bukan data transaksi broker/asing riil**."
     )
 
     try:
@@ -1685,14 +1714,10 @@ def render_market_overview():
             f"{_last_date.day} {_BULAN_ID[_last_date.month]} {_last_date.year}"
         )
     with col_filter:
-        available_sectors = sorted(
-            df_movers["Sektor"].unique(),
-            key=lambda s: _SECTOR_LABEL_ID.get(s, s),
-        )
+        available_sectors = sorted(df_movers["Sektor"].unique())
         sel_sectors = st.multiselect(
             "Filter Sektor",
             options=available_sectors,
-            format_func=lambda s: _SECTOR_LABEL_ID.get(s, s),
             key="mo_sector_filter",
             placeholder="Filter sektor (semua)",
             label_visibility="collapsed",
@@ -1717,7 +1742,7 @@ def render_market_overview():
     with tab_gainer:
         top_gainer = df_movers_view.sort_values("Perubahan (%)", ascending=False).head(10)
         st.dataframe(
-            top_gainer[display_cols].assign(Sektor=lambda d: d["Sektor"].map(_SECTOR_LABEL_ID).fillna(d["Sektor"])),
+            top_gainer[display_cols],
             use_container_width=True,
             hide_index=True,
         )
@@ -1725,7 +1750,7 @@ def render_market_overview():
     with tab_loser:
         top_loser = df_movers_view.sort_values("Perubahan (%)", ascending=True).head(10)
         st.dataframe(
-            top_loser[display_cols].assign(Sektor=lambda d: d["Sektor"].map(_SECTOR_LABEL_ID).fillna(d["Sektor"])),
+            top_loser[display_cols],
             use_container_width=True,
             hide_index=True,
         )
@@ -1733,7 +1758,7 @@ def render_market_overview():
     with tab_volume:
         top_volume = df_movers_view.sort_values("Volume", ascending=False).head(10)
         st.dataframe(
-            top_volume[display_cols].assign(Sektor=lambda d: d["Sektor"].map(_SECTOR_LABEL_ID).fillna(d["Sektor"])),
+            top_volume[display_cols],
             use_container_width=True,
             hide_index=True,
         )
@@ -1742,7 +1767,7 @@ def render_market_overview():
         asing_cols = ["Kode", "Sektor", "Close", "Perubahan (%)", "Net Asing Estimasi (Rp)"]
         top_asing = df_movers_view.sort_values("Net Asing Estimasi (Rp)", ascending=False).head(10)
         st.dataframe(
-            top_asing[asing_cols].assign(Sektor=lambda d: d["Sektor"].map(_SECTOR_LABEL_ID).fillna(d["Sektor"])),
+            top_asing[asing_cols],
             use_container_width=True,
             hide_index=True,
         )
