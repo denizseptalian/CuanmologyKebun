@@ -1301,6 +1301,7 @@ def _load_market_movers_data():
 
         rows.append({
             "Kode": code,
+            "Tanggal": pd.Timestamp(df.index[-1]).date(),
             "Close": last_close,
             "Perubahan (%)": round(chg_pct, 2),
             "Volume": volume,
@@ -1373,6 +1374,15 @@ def render_market_overview():
     if df_movers.empty:
         st.info("Data top movers tidak tersedia saat ini.")
         return
+
+    _HARI_ID  = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+    _BULAN_ID = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+                 "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+    _last_date = df_movers["Tanggal"].max()
+    st.markdown(
+        f"##### 📅 Data per {_HARI_ID[_last_date.weekday()]}, "
+        f"{_last_date.day} {_BULAN_ID[_last_date.month]} {_last_date.year}"
+    )
 
     tab_gainer, tab_loser, tab_volume, tab_asing = st.tabs(
         ["🟢 Top Gainer", "🔴 Top Loser", "📊 Top Volume", "🌐 Top Net Asing (Estimasi)"]
