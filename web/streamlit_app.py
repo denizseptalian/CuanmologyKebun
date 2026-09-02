@@ -1259,7 +1259,66 @@ def _load_index_history(symbol):
     return df.dropna()
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=120)
+def _load_index_intraday(symbol):
+    import yfinance as yf
+
+    # Data harian di Yahoo untuk indeks IDX kadang telat 1 hari bursa,
+    # tapi data intraday (5m) selalu mengikuti sesi terakhir yang sudah jalan.
+    df = yf.download(symbol, period="5d", interval="5m", progress=False)
+
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [c[0] for c in df.columns]
+    df.columns = [str(c).upper().strip() for c in df.columns]
+
+    return df.dropna()
+
+
+def _resample_intraday_to_daily(intraday_df):
+    """Agregasi bar intraday jadi OHLCV harian (termasuk sesi hari berjalan)."""
+
+    if intraday_df is None or intraday_df.empty:
+        return pd.DataFrame()
+
+    df = intraday_df.copy()
+    df["_date"] = df.index.date
+
+    daily = df.groupby("_date").agg(
+        OPEN=("OPEN", "first"),
+        HIGH=("HIGH", "max"),
+        LOW=("LOW", "min"),
+        CLOSE=("CLOSE", "last"),
+        VOLUME=("VOLUME", "sum"),
+    )
+    daily.index = pd.to_datetime(daily.index)
+
+    return daily
+
+
+def _augment_daily_with_intraday(daily_df, intraday_df):
+    """Timpa/tambah bar hari terakhir di data harian dengan agregat intraday,
+    supaya chart & statistik selalu mengikuti sesi terkini walau bar harian
+    resmi dari Yahoo belum ter-update."""
+
+    today_bar = _resample_intraday_to_daily(intraday_df)
+
+    if today_bar.empty:
+        return daily_df if daily_df is not None else pd.DataFrame()
+
+    today_bar = today_bar.iloc[[-1]]
+
+    if daily_df is None or daily_df.empty:
+        return today_bar
+
+    if daily_df.index[-1].date() == today_bar.index[-1].date():
+        out = daily_df.copy()
+        out.iloc[-1] = today_bar.iloc[-1]
+        return out
+
+    return pd.concat([daily_df, today_bar])
+
+
+@st.cache_data(ttl=120)
 def _load_market_movers_data():
     import yfinance as yf
     from app.config.hot_saham_list import HOT_SAHAM_LIST
@@ -1267,10 +1326,13 @@ def _load_market_movers_data():
 
     tickers = [f"{code}.JK" for code in HOT_SAHAM_LIST]
 
+    # Pakai data intraday 15 menit lalu di-resample harian sendiri, karena
+    # bar harian bawaan Yahoo untuk saham IDX bisa telat 1 hari bursa
+    # dibanding data intraday yang sudah mengikuti sesi terkini.
     raw = yf.download(
         tickers,
-        period="1mo",
-        interval="1d",
+        period="10d",
+        interval="15m",
         group_by="ticker",
         threads=True,
         progress=False,
@@ -1281,29 +1343,35 @@ def _load_market_movers_data():
     for code, sym in zip(HOT_SAHAM_LIST, tickers):
 
         try:
-            df = raw[sym] if isinstance(raw.columns, pd.MultiIndex) else raw
+            intraday = raw[sym] if isinstance(raw.columns, pd.MultiIndex) else raw
         except KeyError:
             continue
 
-        df = df.dropna(subset=["Close", "Volume"])
+        intraday = intraday.dropna(subset=["Close", "Volume"])
 
-        if len(df) < 2:
+        if intraday.empty:
             continue
 
-        last_close = df["Close"].iloc[-1]
-        prev_close = df["Close"].iloc[-2]
+        intraday.columns = [str(c).upper().strip() for c in intraday.columns]
+        daily = _resample_intraday_to_daily(intraday)
+
+        if len(daily) < 2:
+            continue
+
+        last_close = daily["CLOSE"].iloc[-1]
+        prev_close = daily["CLOSE"].iloc[-2]
 
         if not prev_close or last_close <= 0:
             continue
 
         chg_pct = (last_close / prev_close - 1) * 100
-        volume = int(df["Volume"].iloc[-1])
+        volume = int(daily["VOLUME"].iloc[-1])
 
         if volume <= 0:
             continue
 
         net_asing_est = None
-        df_flow = calc_flow_from_price(df, days=len(df))
+        df_flow = calc_flow_from_price(daily, days=len(daily))
 
         if df_flow is not None and not df_flow.empty:
             last_flow = df_flow.iloc[-1]
@@ -1311,7 +1379,7 @@ def _load_market_movers_data():
 
         rows.append({
             "Kode": code,
-            "Tanggal": pd.Timestamp(df.index[-1]).date(),
+            "Tanggal": daily.index[-1].date(),
             "Close": last_close,
             "Perubahan (%)": round(chg_pct, 2),
             "Volume": volume,
@@ -1328,13 +1396,20 @@ def render_market_overview():
     if "mo_selected_index" not in st.session_state:
         st.session_state["mo_selected_index"] = "IHSG"
 
-    # ---- muat data semua indeks (3 simbol saja, di-cache) ----
-    idx_data = {}
+    # ---- muat data semua indeks: histori harian + intraday (3 simbol, di-cache) ----
+    idx_daily = {}
+    idx_intraday = {}
+    idx_full = {}
     for name, meta in _INDEX_OPTIONS.items():
         try:
-            idx_data[name] = _load_index_history(meta["symbol"])
+            idx_daily[name] = _load_index_history(meta["symbol"])
         except Exception:
-            idx_data[name] = pd.DataFrame()
+            idx_daily[name] = pd.DataFrame()
+        try:
+            idx_intraday[name] = _load_index_intraday(meta["symbol"])
+        except Exception:
+            idx_intraday[name] = pd.DataFrame()
+        idx_full[name] = _augment_daily_with_intraday(idx_daily[name], idx_intraday[name])
 
     col_side, col_main = st.columns([1, 3], gap="medium")
 
@@ -1343,11 +1418,11 @@ def render_market_overview():
     # ======================================================
     with col_side:
 
-        ihsg_df = idx_data.get("IHSG")
+        ihsg_full = idx_full.get("IHSG")
         _BULAN_SHORT = ["", "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
                          "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
-        if ihsg_df is not None and not ihsg_df.empty:
-            _d = ihsg_df.index.max()
+        if ihsg_full is not None and not ihsg_full.empty:
+            _d = ihsg_full.index.max()
             _upd = f"{_d.day:02d} {_BULAN_SHORT[_d.month]} {_d.year}"
         else:
             _upd = "-"
@@ -1356,18 +1431,15 @@ def render_market_overview():
             f"""
             <div style="font-size:0.7rem; font-weight:700; letter-spacing:1px;
                         color:#6b7280; text-transform:uppercase;">Performa</div>
-            <div style="font-size:0.7rem; color:#9ca3af;" title="Tanggal candle terakhir yang sudah tersedia dari Yahoo Finance — bisa telat 1 hari bursa dari data resmi IHSG.">
+            <div style="font-size:0.7rem; color:#9ca3af; margin-bottom:8px;">
                 🟢 data per : {_upd}
-            </div>
-            <div style="font-size:0.6rem; color:#9ca3af; font-style:italic; margin-bottom:8px;">
-                (mengikuti data Yahoo Finance, bisa delay 1 hari bursa)
             </div>
             """,
             unsafe_allow_html=True,
         )
 
         for name, meta in _INDEX_OPTIONS.items():
-            df = idx_data.get(name)
+            df = idx_full.get(name)
 
             if df is None or df.empty or len(df) < 2:
                 continue
@@ -1415,7 +1487,8 @@ def render_market_overview():
 
         sel_name = st.session_state["mo_selected_index"]
         sel_meta = _INDEX_OPTIONS[sel_name]
-        df = idx_data.get(sel_name)
+        df = idx_full.get(sel_name)
+        df_intraday = idx_intraday.get(sel_name)
 
         if df is None or df.empty or len(df) < 2:
             st.info(f"Data {sel_name} tidak tersedia saat ini.")
@@ -1462,21 +1535,12 @@ def render_market_overview():
             with ctrl2:
                 timeframe = st.radio(
                     "Timeframe",
-                    ["1M", "3M", "6M", "YTD", "1Y"],
-                    index=4,
+                    ["1D", "1M", "3M", "6M", "YTD", "1Y"],
+                    index=5,
                     horizontal=True,
                     label_visibility="collapsed",
                     key="mo_timeframe",
                 )
-
-            now_ts = df.index.max()
-            if timeframe == "YTD":
-                start_ts = pd.Timestamp(year=now_ts.year, month=1, day=1)
-            else:
-                days_map = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365}
-                start_ts = now_ts - pd.Timedelta(days=days_map.get(timeframe, 365))
-
-            df_view = df[df.index >= start_ts]
 
             fig = make_subplots(
                 rows=2, cols=1,
@@ -1485,10 +1549,33 @@ def render_market_overview():
                 vertical_spacing=0.03,
             )
 
+            is_intraday_view = timeframe == "1D" and df_intraday is not None and not df_intraday.empty
+
+            if is_intraday_view:
+                # ---- Tampilan 1 hari: pakai bar intraday hari sesi terakhir ----
+                d_intra = df_intraday.copy()
+                d_intra["_date"] = d_intra.index.date
+                last_session = d_intra["_date"].max()
+                df_view = d_intra[d_intra["_date"] == last_session].drop(columns=["_date"])
+
+                # sumbu-x kategori (jam saja) supaya gap istirahat siang tidak
+                # membuat candle "melompat" jauh seperti gap akhir pekan
+                x_vals = [t.strftime("%H:%M") for t in df_view.index]
+            else:
+                now_ts = df.index.max()
+                if timeframe == "YTD":
+                    start_ts = pd.Timestamp(year=now_ts.year, month=1, day=1)
+                else:
+                    days_map = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365}
+                    start_ts = now_ts - pd.Timedelta(days=days_map.get(timeframe, 365))
+
+                df_view = df[df.index >= start_ts]
+                x_vals = df_view.index
+
             if chart_type == "Candle":
                 fig.add_trace(
                     go.Candlestick(
-                        x=df_view.index,
+                        x=x_vals,
                         open=df_view["OPEN"],
                         high=df_view["HIGH"],
                         low=df_view["LOW"],
@@ -1502,7 +1589,7 @@ def render_market_overview():
             else:
                 fig.add_trace(
                     go.Scatter(
-                        x=df_view.index,
+                        x=x_vals,
                         y=df_view["CLOSE"],
                         mode="lines",
                         line=dict(color="#2e6e46", width=2),
@@ -1518,7 +1605,7 @@ def render_market_overview():
 
             fig.add_trace(
                 go.Bar(
-                    x=df_view.index,
+                    x=x_vals,
                     y=df_view["VOLUME"],
                     marker_color=vol_colors,
                     name="Volume",
@@ -1533,10 +1620,16 @@ def render_market_overview():
                 xaxis_rangeslider_visible=False,
                 bargap=0.2,
             )
-            fig.update_xaxes(
-                showgrid=False,
-                rangebreaks=[dict(bounds=["sat", "mon"])],
-            )
+
+            if is_intraday_view:
+                fig.update_xaxes(showgrid=False, type="category")
+                fig.update_xaxes(nticks=12, row=2, col=1)
+            else:
+                fig.update_xaxes(
+                    showgrid=False,
+                    rangebreaks=[dict(bounds=["sat", "mon"])],
+                )
+
             fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.06)")
 
             st.plotly_chart(fig, use_container_width=True)
