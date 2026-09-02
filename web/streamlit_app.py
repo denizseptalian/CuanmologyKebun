@@ -1356,8 +1356,11 @@ def render_market_overview():
             f"""
             <div style="font-size:0.7rem; font-weight:700; letter-spacing:1px;
                         color:#6b7280; text-transform:uppercase;">Performa</div>
-            <div style="font-size:0.7rem; color:#9ca3af; margin-bottom:8px;">
-                🟢 update terakhir : {_upd}
+            <div style="font-size:0.7rem; color:#9ca3af;" title="Tanggal candle terakhir yang sudah tersedia dari Yahoo Finance — bisa telat 1 hari bursa dari data resmi IHSG.">
+                🟢 data per : {_upd}
+            </div>
+            <div style="font-size:0.6rem; color:#9ca3af; font-style:italic; margin-bottom:8px;">
+                (mengikuti data Yahoo Finance, bisa delay 1 hari bursa)
             </div>
             """,
             unsafe_allow_html=True,
@@ -1530,7 +1533,10 @@ def render_market_overview():
                 xaxis_rangeslider_visible=False,
                 bargap=0.2,
             )
-            fig.update_xaxes(showgrid=False)
+            fig.update_xaxes(
+                showgrid=False,
+                rangebreaks=[dict(bounds=["sat", "mon"])],
+            )
             fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.06)")
 
             st.plotly_chart(fig, use_container_width=True)
