@@ -1245,6 +1245,27 @@ _INDEX_OPTIONS = {
     "JII":  {"symbol": "^JKII",   "tag": "SYARIAH",  "sub": "JAKARTA ISLAMIC INDEX"},
 }
 
+# Label Indonesia untuk kode sektor di app/config/saham_sector.py
+_SECTOR_LABEL_ID = {
+    "BANK":      "Bank",
+    "FINANCE":   "Keuangan",
+    "ENERGY":    "Energi",
+    "MINING":    "Pertambangan",
+    "CONSUMER":  "Barang Konsumen",
+    "RETAIL":    "Ritel",
+    "PROPERTY":  "Properti & Real Estat",
+    "INFRA":     "Infrastruktur",
+    "TRANSPORT": "Transportasi & Logistik",
+    "TECH":      "Teknologi",
+    "DIGITAL":   "Digital",
+    "TELECOM":   "Telekomunikasi",
+    "MANUFACTURING": "Manufaktur",
+    "AUTO":      "Otomotif",
+    "AGRI":      "Pertanian",
+    "SPECULATIVE": "Spekulatif",
+    "OTHER":     "Lainnya",
+}
+
 
 @st.cache_data(ttl=900)
 def _load_index_history(symbol):
@@ -1322,6 +1343,7 @@ def _augment_daily_with_intraday(daily_df, intraday_df):
 def _load_market_movers_data():
     import yfinance as yf
     from app.config.hot_saham_list import HOT_SAHAM_LIST
+    from app.config.saham_sector import SAHAM_SECTOR
     from app.utils.broker_flow import calc_flow_from_price
 
     tickers = [f"{code}.JK" for code in HOT_SAHAM_LIST]
@@ -1379,6 +1401,7 @@ def _load_market_movers_data():
 
         rows.append({
             "Kode": code,
+            "Sektor": SAHAM_SECTOR.get(code, "OTHER"),
             "Tanggal": daily.index[-1].date(),
             "Close": last_close,
             "Perubahan (%)": round(chg_pct, 2),
@@ -1654,43 +1677,72 @@ def render_market_overview():
     _BULAN_ID = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni",
                  "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
     _last_date = df_movers["Tanggal"].max()
-    st.markdown(
-        f"##### 📅 Data per {_HARI_ID[_last_date.weekday()]}, "
-        f"{_last_date.day} {_BULAN_ID[_last_date.month]} {_last_date.year}"
-    )
+
+    col_date, col_filter = st.columns([2, 1])
+    with col_date:
+        st.markdown(
+            f"##### 📅 Data per {_HARI_ID[_last_date.weekday()]}, "
+            f"{_last_date.day} {_BULAN_ID[_last_date.month]} {_last_date.year}"
+        )
+    with col_filter:
+        available_sectors = sorted(
+            df_movers["Sektor"].unique(),
+            key=lambda s: _SECTOR_LABEL_ID.get(s, s),
+        )
+        sel_sectors = st.multiselect(
+            "Filter Sektor",
+            options=available_sectors,
+            format_func=lambda s: _SECTOR_LABEL_ID.get(s, s),
+            key="mo_sector_filter",
+            placeholder="Filter sektor (semua)",
+            label_visibility="collapsed",
+        )
+
+    if sel_sectors:
+        df_movers_view = df_movers[df_movers["Sektor"].isin(sel_sectors)]
+    else:
+        df_movers_view = df_movers
+
+    if df_movers_view.empty:
+        st.info("Tidak ada emiten pada sektor yang dipilih.")
+        st.divider()
+        return
+
+    display_cols = ["Kode", "Sektor", "Close", "Perubahan (%)", "Volume"]
 
     tab_gainer, tab_loser, tab_volume, tab_asing = st.tabs(
         ["🟢 Top Gainer", "🔴 Top Loser", "📊 Top Volume", "🌐 Top Net Asing (Estimasi)"]
     )
 
     with tab_gainer:
-        top_gainer = df_movers.sort_values("Perubahan (%)", ascending=False).head(10)
+        top_gainer = df_movers_view.sort_values("Perubahan (%)", ascending=False).head(10)
         st.dataframe(
-            top_gainer[["Kode", "Close", "Perubahan (%)", "Volume"]],
+            top_gainer[display_cols].assign(Sektor=lambda d: d["Sektor"].map(_SECTOR_LABEL_ID).fillna(d["Sektor"])),
             use_container_width=True,
             hide_index=True,
         )
 
     with tab_loser:
-        top_loser = df_movers.sort_values("Perubahan (%)", ascending=True).head(10)
+        top_loser = df_movers_view.sort_values("Perubahan (%)", ascending=True).head(10)
         st.dataframe(
-            top_loser[["Kode", "Close", "Perubahan (%)", "Volume"]],
+            top_loser[display_cols].assign(Sektor=lambda d: d["Sektor"].map(_SECTOR_LABEL_ID).fillna(d["Sektor"])),
             use_container_width=True,
             hide_index=True,
         )
 
     with tab_volume:
-        top_volume = df_movers.sort_values("Volume", ascending=False).head(10)
+        top_volume = df_movers_view.sort_values("Volume", ascending=False).head(10)
         st.dataframe(
-            top_volume[["Kode", "Close", "Perubahan (%)", "Volume"]],
+            top_volume[display_cols].assign(Sektor=lambda d: d["Sektor"].map(_SECTOR_LABEL_ID).fillna(d["Sektor"])),
             use_container_width=True,
             hide_index=True,
         )
 
     with tab_asing:
-        top_asing = df_movers.sort_values("Net Asing Estimasi (Rp)", ascending=False).head(10)
+        asing_cols = ["Kode", "Sektor", "Close", "Perubahan (%)", "Net Asing Estimasi (Rp)"]
+        top_asing = df_movers_view.sort_values("Net Asing Estimasi (Rp)", ascending=False).head(10)
         st.dataframe(
-            top_asing[["Kode", "Close", "Perubahan (%)", "Net Asing Estimasi (Rp)"]],
+            top_asing[asing_cols].assign(Sektor=lambda d: d["Sektor"].map(_SECTOR_LABEL_ID).fillna(d["Sektor"])),
             use_container_width=True,
             hide_index=True,
         )
