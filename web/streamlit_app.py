@@ -1440,6 +1440,100 @@ def _load_market_movers_data():
     return pd.DataFrame(rows)
 
 
+def _sinyal_estimasi_label(net):
+    if net is None or pd.isna(net):
+        return "-"
+    if net > 0:
+        return "🟢 Asing Buy / 🔴 Ritel Sell"
+    if net < 0:
+        return "🔴 Asing Sell / 🟢 Ritel Buy"
+    return "Netral"
+
+
+@st.cache_data(ttl=120)
+def _load_konglomerat_market_data():
+    import yfinance as yf
+    from app.config.konglomerat_list import KONGLOMERAT_LIST
+    from app.utils.broker_flow import calc_flow_from_price
+
+    long_rows = []
+    for grup, members in KONGLOMERAT_LIST.items():
+        for m in members:
+            long_rows.append({**m, "grup": grup})
+
+    unique_codes = sorted({r["kode"] for r in long_rows})
+    tickers = [f"{c}.JK" for c in unique_codes]
+
+    raw = yf.download(
+        tickers,
+        period="10d",
+        interval="15m",
+        group_by="ticker",
+        threads=True,
+        progress=False,
+    )
+
+    market = {}
+
+    for code, sym in zip(unique_codes, tickers):
+
+        try:
+            intraday = raw[sym] if isinstance(raw.columns, pd.MultiIndex) else raw
+        except KeyError:
+            continue
+
+        intraday = intraday.dropna(subset=["Close", "Volume"])
+
+        if intraday.empty:
+            continue
+
+        intraday.columns = [str(c).upper().strip() for c in intraday.columns]
+        daily = _resample_intraday_to_daily(intraday)
+
+        if daily.empty:
+            continue
+
+        last_close = daily["CLOSE"].iloc[-1]
+        volume = int(daily["VOLUME"].iloc[-1])
+
+        chg_pct = None
+        if len(daily) >= 2:
+            prev_close = daily["CLOSE"].iloc[-2]
+            if prev_close:
+                chg_pct = round((last_close / prev_close - 1) * 100, 2)
+
+        net_asing_est = None
+        df_flow = calc_flow_from_price(daily, days=len(daily))
+        if df_flow is not None and not df_flow.empty:
+            last_flow = df_flow.iloc[-1]
+            net_asing_est = round(last_flow["asing_flow"] + last_flow["retail_flow"])
+
+        market[code] = {
+            "Harga": last_close,
+            "Perubahan (%)": chg_pct,
+            "Volume": volume,
+            "Net Asing Estimasi (Rp)": net_asing_est,
+        }
+
+    rows = []
+    for r in long_rows:
+        md = market.get(r["kode"], {})
+        rows.append({
+            "Konglomerat": r["grup"],
+            "Kode": r["kode"],
+            "Nama Perusahaan": r["nama"],
+            "Sektor": r["sektor"],
+            "Harga": md.get("Harga"),
+            "Perubahan (%)": md.get("Perubahan (%)"),
+            "Volume": md.get("Volume"),
+            "Net Asing Estimasi (Rp)": md.get("Net Asing Estimasi (Rp)"),
+            "Status Afiliasi": r["status"],
+            "Catatan": r["catatan"],
+        })
+
+    return pd.DataFrame(rows)
+
+
 def render_market_overview():
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
@@ -1735,8 +1829,8 @@ def render_market_overview():
 
     display_cols = ["Kode", "Sektor", "Close", "Perubahan (%)", "Volume"]
 
-    tab_gainer, tab_loser, tab_volume, tab_asing = st.tabs(
-        ["🟢 Top Gainer", "🔴 Top Loser", "📊 Top Volume", "🌐 Top Net Asing (Estimasi)"]
+    tab_gainer, tab_loser, tab_volume, tab_asing, tab_konglo = st.tabs(
+        ["🟢 Top Gainer", "🔴 Top Loser", "📊 Top Volume", "🌐 Top Net Asing (Estimasi)", "🏛️ CuanKonglo"]
     )
 
     with tab_gainer:
@@ -1771,6 +1865,51 @@ def render_market_overview():
             use_container_width=True,
             hide_index=True,
         )
+
+    with tab_konglo:
+        st.caption(
+            "📌 Data afiliasi grup konglomerasi adalah kompilasi riset manual — "
+            "**bukan dari sumber resmi IDX/OJK otomatis**. Mohon verifikasi ulang ke laporan "
+            "keterbukaan informasi resmi sebelum dipakai sebagai dasar keputusan. Kolom "
+            "**Sinyal Estimasi** berasal dari pola VSA harga & volume, bukan data transaksi riil."
+        )
+
+        try:
+            df_konglo = _load_konglomerat_market_data()
+        except Exception as e:
+            df_konglo = pd.DataFrame()
+            st.warning(f"Gagal memuat data CuanKonglo: {e}")
+
+        if df_konglo.empty:
+            st.info("Data tidak tersedia saat ini.")
+        else:
+            grup_options = sorted(df_konglo["Konglomerat"].unique())
+            sel_grup = st.multiselect(
+                "Filter Konglomerat",
+                options=grup_options,
+                key="mo_konglo_filter",
+                placeholder="Filter grup konglomerasi (semua)",
+            )
+
+            df_konglo_view = (
+                df_konglo[df_konglo["Konglomerat"].isin(sel_grup)]
+                if sel_grup else df_konglo
+            ).copy()
+
+            df_konglo_view["Sinyal Estimasi"] = df_konglo_view["Net Asing Estimasi (Rp)"].apply(
+                _sinyal_estimasi_label
+            )
+
+            st.dataframe(
+                df_konglo_view[[
+                    "Konglomerat", "Kode", "Nama Perusahaan", "Sektor",
+                    "Harga", "Perubahan (%)", "Volume",
+                    "Sinyal Estimasi", "Status Afiliasi", "Catatan",
+                ]].sort_values(["Konglomerat", "Kode"]),
+                use_container_width=True,
+                hide_index=True,
+                height=500,
+            )
 
     st.divider()
 
