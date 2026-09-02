@@ -1236,17 +1236,27 @@ def scan_week(min_price=None, max_price=None):
 # ===================== MARKET OVERVIEW =====================
 # ==========================================================
 
-@st.cache_data(ttl=900)
-def _load_ihsg_chart_data():
-    from app.utils.market_data import load_price_data
+# Indeks yang benar-benar tersedia via Yahoo Finance untuk BEI.
+# IDX30 / IDX80 / ISSI / KOMPAS100 / BISNIS-27 TIDAK ada feed-nya di Yahoo Finance,
+# jadi tidak dimasukkan (dibanding mengarang data).
+_INDEX_OPTIONS = {
+    "IHSG": {"symbol": "^JKSE",   "tag": "HEADLINE", "sub": "COMPOSITE"},
+    "LQ45": {"symbol": "^JKLQ45", "tag": "HEADLINE", "sub": "LQ45"},
+    "JII":  {"symbol": "^JKII",   "tag": "SYARIAH",  "sub": "JAKARTA ISLAMIC INDEX"},
+}
 
-    df = load_price_data("^JKSE", period="6mo", interval="1d")
+
+@st.cache_data(ttl=900)
+def _load_index_history(symbol):
+    import yfinance as yf
+
+    df = yf.download(symbol, period="2y", interval="1d", progress=False)
 
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [c[0] for c in df.columns]
     df.columns = [str(c).upper().strip() for c in df.columns]
 
-    return df
+    return df.dropna()
 
 
 @st.cache_data(ttl=300)
@@ -1313,51 +1323,217 @@ def _load_market_movers_data():
 
 def render_market_overview():
     import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
 
-    st.subheader("📈 IHSG (Jakarta Composite Index)")
+    if "mo_selected_index" not in st.session_state:
+        st.session_state["mo_selected_index"] = "IHSG"
 
-    try:
-        df_ihsg = _load_ihsg_chart_data()
-    except Exception as e:
-        df_ihsg = None
-        st.warning(f"Gagal memuat data IHSG: {e}")
+    # ---- muat data semua indeks (3 simbol saja, di-cache) ----
+    idx_data = {}
+    for name, meta in _INDEX_OPTIONS.items():
+        try:
+            idx_data[name] = _load_index_history(meta["symbol"])
+        except Exception:
+            idx_data[name] = pd.DataFrame()
 
-    if df_ihsg is not None and not df_ihsg.empty:
+    col_side, col_main = st.columns([1, 3], gap="medium")
 
-        last_close = df_ihsg["CLOSE"].iloc[-1]
-        prev_close = df_ihsg["CLOSE"].iloc[-2] if len(df_ihsg) > 1 else last_close
-        chg = last_close - prev_close
-        chg_pct = (chg / prev_close * 100) if prev_close else 0
+    # ======================================================
+    # SIDEBAR — DAFTAR PERFORMA INDEKS
+    # ======================================================
+    with col_side:
 
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            st.metric(
-                "IHSG",
-                f"{last_close:,.2f}",
-                f"{chg:,.2f} ({chg_pct:+.2f}%)",
+        ihsg_df = idx_data.get("IHSG")
+        _BULAN_SHORT = ["", "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+                         "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+        if ihsg_df is not None and not ihsg_df.empty:
+            _d = ihsg_df.index.max()
+            _upd = f"{_d.day:02d} {_BULAN_SHORT[_d.month]} {_d.year}"
+        else:
+            _upd = "-"
+
+        st.markdown(
+            f"""
+            <div style="font-size:0.7rem; font-weight:700; letter-spacing:1px;
+                        color:#6b7280; text-transform:uppercase;">Performa</div>
+            <div style="font-size:0.7rem; color:#9ca3af; margin-bottom:8px;">
+                🟢 update terakhir : {_upd}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        for name, meta in _INDEX_OPTIONS.items():
+            df = idx_data.get(name)
+
+            if df is None or df.empty or len(df) < 2:
+                continue
+
+            last = df["CLOSE"].iloc[-1]
+            prev = df["CLOSE"].iloc[-2]
+            chg_pct = ((last / prev) - 1) * 100 if prev else 0
+            up = chg_pct >= 0
+            color = "#1b8a5a" if up else "#d64545"
+            arrow = "▲" if up else "▼"
+            is_selected = st.session_state["mo_selected_index"] == name
+
+            st.markdown(
+                f"""
+                <div style="border-left:4px solid {color if is_selected else 'transparent'};
+                            background:{'#eef6f0' if is_selected else 'transparent'};
+                            border-radius:6px; padding:8px 10px; margin-bottom:2px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                      <span style="font-weight:700; font-size:0.9rem;">{name}</span>
+                      <span style="font-size:0.55rem; background:#e5e7eb; border-radius:4px;
+                                    padding:1px 5px; margin-left:4px; color:#374151;">{meta['tag']}</span>
+                    </div>
+                    <div style="color:{color}; font-weight:700; font-size:0.8rem;">{arrow} {chg_pct:+.2f}%</div>
+                  </div>
+                  <div style="font-size:1.05rem; font-weight:700; margin-top:2px;">{last:,.2f}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-        fig = go.Figure(
-            data=[
-                go.Scatter(
-                    x=df_ihsg.index,
-                    y=df_ihsg["CLOSE"],
-                    mode="lines",
-                    fill="tozeroy",
-                    line=dict(color="#1f77b4"),
-                    name="IHSG",
+            if st.button(
+                "✓ Dipilih" if is_selected else "Pilih",
+                key=f"mo_pick_{name}",
+                use_container_width=True,
+                disabled=is_selected,
+            ):
+                st.session_state["mo_selected_index"] = name
+                st.rerun()
+
+    # ======================================================
+    # MAIN — CHART INDEKS TERPILIH
+    # ======================================================
+    with col_main:
+
+        sel_name = st.session_state["mo_selected_index"]
+        sel_meta = _INDEX_OPTIONS[sel_name]
+        df = idx_data.get(sel_name)
+
+        if df is None or df.empty or len(df) < 2:
+            st.info(f"Data {sel_name} tidak tersedia saat ini.")
+        else:
+            last = df["CLOSE"].iloc[-1]
+            prev = df["CLOSE"].iloc[-2]
+            chg = last - prev
+            chg_pct = (chg / prev * 100) if prev else 0
+            up = chg >= 0
+
+            st.markdown(
+                f"""
+                <div style="background:linear-gradient(135deg,#1f3d2b,#274a34); border-radius:10px;
+                            padding:14px 20px; display:flex; justify-content:space-between;
+                            align-items:center; color:#fff; margin-bottom:12px;">
+                  <div>
+                    <div style="font-size:0.65rem; letter-spacing:1px; opacity:0.75;
+                                text-transform:uppercase;">{sel_meta['tag']} INDEX</div>
+                    <div style="font-size:1.6rem; font-weight:800; line-height:1.15;">{sel_name}</div>
+                    <div style="font-size:0.7rem; opacity:0.8;">{sel_meta['sub']}</div>
+                  </div>
+                  <div style="text-align:right;">
+                    <div style="font-size:0.65rem; opacity:0.75;">LAST</div>
+                    <div style="font-size:1.5rem; font-weight:800;">{last:,.2f}</div>
+                    <div style="font-size:0.85rem; font-weight:700; color:{'#8be0ac' if up else '#ff9d9d'};">
+                      {chg:+,.2f}&nbsp;&nbsp;{chg_pct:+.2f}%
+                    </div>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            ctrl1, ctrl2 = st.columns([1, 2])
+            with ctrl1:
+                chart_type = st.radio(
+                    "Tipe Chart",
+                    ["Line", "Candle"],
+                    index=1,
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    key="mo_chart_type",
                 )
-            ]
-        )
-        fig.update_layout(
-            height=320,
-            margin=dict(l=10, r=10, t=10, b=10),
-            xaxis_title=None,
-            yaxis_title=None,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Data IHSG tidak tersedia saat ini.")
+            with ctrl2:
+                timeframe = st.radio(
+                    "Timeframe",
+                    ["1M", "3M", "6M", "YTD", "1Y"],
+                    index=4,
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    key="mo_timeframe",
+                )
+
+            now_ts = df.index.max()
+            if timeframe == "YTD":
+                start_ts = pd.Timestamp(year=now_ts.year, month=1, day=1)
+            else:
+                days_map = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365}
+                start_ts = now_ts - pd.Timedelta(days=days_map.get(timeframe, 365))
+
+            df_view = df[df.index >= start_ts]
+
+            fig = make_subplots(
+                rows=2, cols=1,
+                shared_xaxes=True,
+                row_heights=[0.75, 0.25],
+                vertical_spacing=0.03,
+            )
+
+            if chart_type == "Candle":
+                fig.add_trace(
+                    go.Candlestick(
+                        x=df_view.index,
+                        open=df_view["OPEN"],
+                        high=df_view["HIGH"],
+                        low=df_view["LOW"],
+                        close=df_view["CLOSE"],
+                        increasing_line_color="#2e9e63",
+                        decreasing_line_color="#e05252",
+                        name=sel_name,
+                    ),
+                    row=1, col=1,
+                )
+            else:
+                fig.add_trace(
+                    go.Scatter(
+                        x=df_view.index,
+                        y=df_view["CLOSE"],
+                        mode="lines",
+                        line=dict(color="#2e6e46", width=2),
+                        fill="tozeroy",
+                        fillcolor="rgba(46,110,70,0.15)",
+                        name=sel_name,
+                    ),
+                    row=1, col=1,
+                )
+
+            prev_close_series = df_view["CLOSE"].shift(1).fillna(df_view["OPEN"])
+            vol_colors = np.where(df_view["CLOSE"] >= prev_close_series, "#2e9e63", "#e05252")
+
+            fig.add_trace(
+                go.Bar(
+                    x=df_view.index,
+                    y=df_view["VOLUME"],
+                    marker_color=vol_colors,
+                    name="Volume",
+                ),
+                row=2, col=1,
+            )
+
+            fig.update_layout(
+                height=480,
+                margin=dict(l=10, r=10, t=10, b=10),
+                showlegend=False,
+                xaxis_rangeslider_visible=False,
+                bargap=0.2,
+            )
+            fig.update_xaxes(showgrid=False)
+            fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.06)")
+
+            st.plotly_chart(fig, use_container_width=True)
 
     st.caption(
         "📌 Ranking di bawah dihitung dari daftar HOT_SAHAM_LIST (bukan seluruh saham IDX). "
