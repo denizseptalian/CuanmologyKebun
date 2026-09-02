@@ -1233,12 +1233,195 @@ def scan_week(min_price=None, max_price=None):
     return entry_df, watchlist_df
 
 # ==========================================================
+# ===================== MARKET OVERVIEW =====================
+# ==========================================================
+
+@st.cache_data(ttl=900)
+def _load_ihsg_chart_data():
+    from app.utils.market_data import load_price_data
+
+    df = load_price_data("^JKSE", period="6mo", interval="1d")
+
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [c[0] for c in df.columns]
+    df.columns = [str(c).upper().strip() for c in df.columns]
+
+    return df
+
+
+@st.cache_data(ttl=300)
+def _load_market_movers_data():
+    import yfinance as yf
+    from app.config.hot_saham_list import HOT_SAHAM_LIST
+    from app.utils.broker_flow import calc_flow_from_price
+
+    tickers = [f"{code}.JK" for code in HOT_SAHAM_LIST]
+
+    raw = yf.download(
+        tickers,
+        period="1mo",
+        interval="1d",
+        group_by="ticker",
+        threads=True,
+        progress=False,
+    )
+
+    rows = []
+
+    for code, sym in zip(HOT_SAHAM_LIST, tickers):
+
+        try:
+            df = raw[sym] if isinstance(raw.columns, pd.MultiIndex) else raw
+        except KeyError:
+            continue
+
+        df = df.dropna(subset=["Close", "Volume"])
+
+        if len(df) < 2:
+            continue
+
+        last_close = df["Close"].iloc[-1]
+        prev_close = df["Close"].iloc[-2]
+
+        if not prev_close or last_close <= 0:
+            continue
+
+        chg_pct = (last_close / prev_close - 1) * 100
+        volume = int(df["Volume"].iloc[-1])
+
+        if volume <= 0:
+            continue
+
+        net_asing_est = None
+        df_flow = calc_flow_from_price(df, days=len(df))
+
+        if df_flow is not None and not df_flow.empty:
+            last_flow = df_flow.iloc[-1]
+            net_asing_est = last_flow["asing_flow"] + last_flow["retail_flow"]
+
+        rows.append({
+            "Kode": code,
+            "Close": last_close,
+            "Perubahan (%)": round(chg_pct, 2),
+            "Volume": volume,
+            "Net Asing Estimasi (Rp)": round(net_asing_est) if net_asing_est is not None else 0,
+        })
+
+    return pd.DataFrame(rows)
+
+
+def render_market_overview():
+    import plotly.graph_objects as go
+
+    st.subheader("📈 IHSG (Jakarta Composite Index)")
+
+    try:
+        df_ihsg = _load_ihsg_chart_data()
+    except Exception as e:
+        df_ihsg = None
+        st.warning(f"Gagal memuat data IHSG: {e}")
+
+    if df_ihsg is not None and not df_ihsg.empty:
+
+        last_close = df_ihsg["CLOSE"].iloc[-1]
+        prev_close = df_ihsg["CLOSE"].iloc[-2] if len(df_ihsg) > 1 else last_close
+        chg = last_close - prev_close
+        chg_pct = (chg / prev_close * 100) if prev_close else 0
+
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.metric(
+                "IHSG",
+                f"{last_close:,.2f}",
+                f"{chg:,.2f} ({chg_pct:+.2f}%)",
+            )
+
+        fig = go.Figure(
+            data=[
+                go.Scatter(
+                    x=df_ihsg.index,
+                    y=df_ihsg["CLOSE"],
+                    mode="lines",
+                    fill="tozeroy",
+                    line=dict(color="#1f77b4"),
+                    name="IHSG",
+                )
+            ]
+        )
+        fig.update_layout(
+            height=320,
+            margin=dict(l=10, r=10, t=10, b=10),
+            xaxis_title=None,
+            yaxis_title=None,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Data IHSG tidak tersedia saat ini.")
+
+    st.caption(
+        "📌 Ranking di bawah dihitung dari daftar HOT_SAHAM_LIST (bukan seluruh saham IDX). "
+        "Kolom **Net Asing Estimasi** adalah estimasi pola VSA dari harga & volume — "
+        "**bukan data transaksi broker/asing riil**."
+    )
+
+    try:
+        df_movers = _load_market_movers_data()
+    except Exception as e:
+        df_movers = pd.DataFrame()
+        st.warning(f"Gagal memuat data top movers: {e}")
+
+    if df_movers.empty:
+        st.info("Data top movers tidak tersedia saat ini.")
+        return
+
+    tab_gainer, tab_loser, tab_volume, tab_asing = st.tabs(
+        ["🟢 Top Gainer", "🔴 Top Loser", "📊 Top Volume", "🌐 Top Net Asing (Estimasi)"]
+    )
+
+    with tab_gainer:
+        top_gainer = df_movers.sort_values("Perubahan (%)", ascending=False).head(10)
+        st.dataframe(
+            top_gainer[["Kode", "Close", "Perubahan (%)", "Volume"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with tab_loser:
+        top_loser = df_movers.sort_values("Perubahan (%)", ascending=True).head(10)
+        st.dataframe(
+            top_loser[["Kode", "Close", "Perubahan (%)", "Volume"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with tab_volume:
+        top_volume = df_movers.sort_values("Volume", ascending=False).head(10)
+        st.dataframe(
+            top_volume[["Kode", "Close", "Perubahan (%)", "Volume"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with tab_asing:
+        top_asing = df_movers.sort_values("Net Asing Estimasi (Rp)", ascending=False).head(10)
+        st.dataframe(
+            top_asing[["Kode", "Close", "Perubahan (%)", "Net Asing Estimasi (Rp)"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.divider()
+
+
+# ==========================================================
 # ===================== MAIN UI =============================
 # ==========================================================
 
 def render_screener():
 
     st.header("📊 Stock Screener")
+
+    render_market_overview()
 
     with st.expander("📌 **Important Notes**"):
 
